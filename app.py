@@ -6,8 +6,9 @@ import json
 from datetime import datetime
 
 # --- 1. FONT CONFIGURATION ---
-path_reg = r"C:\Users\Justin\Desktop\weather_graph_app\ProximaNova-Regular.ttf"
-path_bold = r"C:\Users\Justin\Desktop\weather_graph_app\ProximaNova-Bold.ttf"
+# Updated for web deployment
+path_reg = "ProximaNova-Regular.ttf"
+path_bold = "ProximaNova-Bold.ttf"
 
 def get_base64_font(path):
     try:
