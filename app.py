@@ -4,16 +4,18 @@ import plotly.graph_objects as go
 import base64
 import json
 from datetime import datetime
+import os
 
-# --- 1. FONT CONFIGURATION ---
-# Updated for web deployment
+# --- 1. FONT CONFIGURATION (Relative Paths for Web) ---
 path_reg = "ProximaNova-Regular.ttf"
 path_bold = "ProximaNova-Bold.ttf"
 
 def get_base64_font(path):
     try:
-        with open(path, "rb") as f:
-            return base64.b64encode(f.read()).decode()
+        if os.path.exists(path):
+            with open(path, "rb") as f:
+                return base64.b64encode(f.read()).decode()
+        return ""
     except: return ""
 
 reg_b64, bold_b64 = get_base64_font(path_reg), get_base64_font(path_bold)
@@ -155,8 +157,16 @@ x_font = "ProximaBold" if st.session_state.x_bold else "ProximaRegular"
 y_font = "ProximaBold" if st.session_state.y_bold else "ProximaRegular"
 val_font_fam = "ProximaBold" if st.session_state.value_bold else "ProximaRegular"
 
-# CSS only for non-Plotly UI elements if needed, but primarily using the names defined in @font-face
-st.markdown(f"""<style>{font_css_base} .js-plotly-plot .main-svg text {{ fill: {ui_color} !important; }}</style>""", unsafe_allow_html=True)
+# THE PREVIEW FIX: Add a dark background to the container ONLY if text is white
+preview_bg = "#262730" if ui_color == "white" else "rgba(0,0,0,0)"
+
+label_css = f".xtick text {{ font-weight: normal !important; }}" if not is_h else f".ytick text {{ font-weight: normal !important; }}"
+value_css = f".ytick text {{ font-weight: normal !important; }}" if not is_h else f".xtick text {{ font-weight: normal !important; }}"
+
+st.markdown(f"""<style>{font_css_base} 
+.js-plotly-plot .main-svg text {{ fill: {ui_color} !important; }}
+.stPlotlyChart {{ background-color: {preview_bg}; border-radius: 10px; padding: 10px; }}
+</style>""", unsafe_allow_html=True)
 
 df_p = df_input.copy()
 labels, v1 = df_p["Label"], df_p["Value 1"]
@@ -196,9 +206,7 @@ fig.update_layout(
     showlegend=False, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)'
 )
 
-# FIXED BOLD LOGIC: Use weight in the font dict directly
 val_font = dict(size=st.session_state.value_sz, family=val_font_fam, color=ui_color)
-
 bar_pos = "outside" if st.session_state.show_values else "none"
 line_mode = 'text+lines+markers' if (st.session_state.show_values and st.session_state.show_markers) else ('text+lines' if st.session_state.show_values else ('lines+markers' if st.session_state.show_markers else 'lines'))
 
@@ -212,7 +220,7 @@ if chart_type == "Bar":
 else:
     m_dict = dict(size=st.session_state.marker_size, symbol=st.session_state.marker_symbol)
     fig.add_trace(go.Scatter(x=labels, y=v1, line=dict(color=st.session_state.last_c1, width=st.session_state.line_width), mode=line_mode, text=v1 if st.session_state.show_values else "", textposition="top center", textfont=val_font, marker=m_dict))
-    if v2 is not None: fig.add_trace(go.Scatter(x=labels, y=v2, line=dict(color="#C80000", width=st.session_state.line_width), mode=line_mode, text=v2 if st.session_state.show_values else "", textposition="top center", textfont=val_font, marker=m_dict))
+    if v2 is not None: fig.add_trace(go.Scatter(x=labels, y=v2, line=dict(color=st.session_state.last_c2, width=st.session_state.line_width), mode=line_mode, text=v2 if st.session_state.show_values else "", textposition="top center", textfont=val_font, marker=m_dict))
 
 st.plotly_chart(fig, use_container_width=False, config={'displayModeBar': False})
 
@@ -220,7 +228,6 @@ st.plotly_chart(fig, use_container_width=False, config={'displayModeBar': False}
 t_stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 if st.button("🚀 DOWNLOAD PNG"):
     clean_css = font_css_base.replace('\n', ' ').replace('\r', '')
-    # Map the family names precisely for the SVG export
     js = f"""
     <script>
     (function() {{
