@@ -22,7 +22,7 @@ font_css_base = f"""
 @font-face {{ font-family: 'ProximaBold'; src: url(data:font/truetype;base64,{bold_b64}) format('truetype'); font-weight: bold; }}
 """
 
-st.set_page_config(page_title="Weather Graphic Pro", layout="wide")
+st.set_page_config(page_title="Max Graph Maker", layout="wide")
 
 # --- 2. SESSION STATE ---
 if 'main_df' not in st.session_state:
