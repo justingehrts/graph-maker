@@ -24,7 +24,7 @@ font_css_base = f"""
 @font-face {{ font-family: 'ProximaBold'; src: url(data:font/truetype;base64,{bold_b64}) format('truetype'); font-weight: bold; }}
 """
 
-st.set_page_config(page_title="Max Graphic Maker", layout="wide")
+st.set_page_config(page_title="Weather Graphic Pro", layout="wide")
 
 # --- 2. SESSION STATE ---
 if 'main_df' not in st.session_state:
@@ -43,7 +43,8 @@ state_defaults = {
     'width': 1000, 'height': 800, 'grid_layer': "Above Data",
     'x_bold': True, 'y_bold': True, 'y_step': 10.0,
     'x_sz': 28, 'y_sz': 28, 
-    'show_values': False, 'value_sz': 24, 'value_bold': True
+    'show_values': False, 'value_sz': 24, 'value_bold': True,
+    'highlight_idx': "None", 'highlight_color': '#FFD700'
 }
 for key, val in state_defaults.items():
     if key not in st.session_state: st.session_state[key] = val
@@ -75,7 +76,9 @@ def handle_json():
             'grid_layer': s.get('grid_layer', "Above Data"), 'y_step': s.get('y_step', 10.0), 
             'x_sz': s.get('x_sz', 28), 'y_sz': s.get('y_sz', 28),
             'show_values': s.get('show_values', False), 'value_sz': s.get('value_sz', 24), 
-            'value_bold': s.get('value_bold', True)
+            'value_bold': s.get('value_bold', True),
+            'highlight_idx': s.get('highlight_idx', "None"),
+            'highlight_color': s.get('highlight_color', '#FFD700')
         })
         st.session_state.editor_key += 1
 
@@ -113,6 +116,16 @@ with st.sidebar:
     y_start_zero = st.checkbox("Force Axis to 0", value=st.session_state.y_start_zero); st.session_state.y_start_zero = y_start_zero
     
     st.divider()
+    st.write("**Highlight Point**")
+    h_opts = ["None"] + list(range(len(df_input)))
+    try:
+        curr_h_idx = h_opts.index(st.session_state.highlight_idx)
+    except:
+        curr_h_idx = 0
+    st.session_state.highlight_idx = st.selectbox("Index to Highlight", h_opts, index=curr_h_idx)
+    st.session_state.highlight_color = st.color_picker("Highlight Color", value=st.session_state.highlight_color)
+
+    st.divider()
     st.write("**Data Labels**")
     st.session_state.show_values = st.checkbox("Show Values on Plot", value=st.session_state.show_values)
     st.session_state.value_sz = st.slider("Data Font Size", 10, 80, value=st.session_state.value_sz)
@@ -133,7 +146,6 @@ with st.sidebar:
     step_label = "X-Axis Interval" if st.session_state.orientation == "Horizontal" else "Y-Axis Interval"
     st.session_state.y_step = st.number_input(step_label, min_value=0.1, value=float(st.session_state.y_step), step=1.0)
     
-    # FIXED SYNTAX HERE:
     st.session_state.x_sz = st.slider("Axis Label Size", 12, 120, st.session_state.x_sz)
     st.session_state.x_bold = st.checkbox("Axis Label Bold", value=st.session_state.x_bold)
     st.session_state.y_sz = st.slider("Axis Value Size", 12, 120, st.session_state.y_sz)
@@ -145,7 +157,6 @@ with st.sidebar:
     ui_color = color_map[st.session_state.text_choice]
     
     st.write("**Data Colors**")
-    
     st.write("S1 Presets")
     favs = st.columns(4)
     if favs[0].button("RB"): st.session_state.last_c1 = '#045EA8'; st.rerun()
@@ -158,7 +169,7 @@ with st.sidebar:
     st.session_state.last_c2 = c2_pick.color_picker("S2 Color", value=st.session_state.last_c2)
 
     st.divider()
-    st.download_button("💾 SAVE PROJECT", data=json.dumps({"data": df_input.to_dict(orient='records'), "settings": {"color_v1": st.session_state.last_c1, "color_v2": st.session_state.last_c2, "show_v2": show_v2, "chart_type": chart_type, "orientation": st.session_state.orientation, "line_width": st.session_state.line_width, "show_markers": st.session_state.show_markers, "marker_size": st.session_state.marker_size, "marker_symbol": st.session_state.marker_symbol, "bar_gap": st.session_state.bar_gap, "y_start_zero": y_start_zero, "width": width, "height": height, "text_choice": st.session_state.text_choice, "x_bold": st.session_state.x_bold, "y_bold": st.session_state.y_bold, "x_sz": st.session_state.x_sz, "y_sz": st.session_state.y_sz, "grid_layer": grid_choice, "y_step": st.session_state.y_step, "show_values": st.session_state.show_values, "value_sz": st.session_state.value_sz, "value_bold": st.session_state.value_bold}}), file_name=f"weather_project_{datetime.now().strftime('%Y%m%d')}.json")
+    st.download_button("💾 SAVE PROJECT", data=json.dumps({"data": df_input.to_dict(orient='records'), "settings": {"color_v1": st.session_state.last_c1, "color_v2": st.session_state.last_c2, "show_v2": show_v2, "chart_type": chart_type, "orientation": st.session_state.orientation, "line_width": st.session_state.line_width, "show_markers": st.session_state.show_markers, "marker_size": st.session_state.marker_size, "marker_symbol": st.session_state.marker_symbol, "bar_gap": st.session_state.bar_gap, "y_start_zero": y_start_zero, "width": width, "height": height, "text_choice": st.session_state.text_choice, "x_bold": st.session_state.x_bold, "y_bold": st.session_state.y_bold, "x_sz": st.session_state.x_sz, "y_sz": st.session_state.y_sz, "grid_layer": grid_choice, "y_step": st.session_state.y_step, "show_values": st.session_state.show_values, "value_sz": st.session_state.value_sz, "value_bold": st.session_state.value_bold, "highlight_idx": st.session_state.highlight_idx, "highlight_color": st.session_state.highlight_color}}), file_name=f"weather_project_{datetime.now().strftime('%Y%m%d')}.json")
 
 # --- 6. GRAPH LOGIC ---
 is_h = (st.session_state.orientation == "Horizontal")
@@ -176,6 +187,14 @@ st.markdown(f"""<style>{font_css_base}
 df_p = df_input.copy()
 labels, v1 = df_p["Label"], df_p["Value 1"]
 v2 = df_p["Value 2"] if (show_v2 and "Value 2" in df_p.columns) else None
+
+# Highlight logic: create a list of colors
+colors_v1 = [st.session_state.last_c1] * len(df_p)
+if st.session_state.highlight_idx != "None":
+    try:
+        colors_v1[int(st.session_state.highlight_idx)] = st.session_state.highlight_color
+    except:
+        pass
 
 all_vals = pd.concat([v1, v2]) if (show_v2 and v2 is not None) else v1
 data_min, data_max = all_vals.min(), all_vals.max()
@@ -217,15 +236,16 @@ line_mode = 'text+lines+markers' if (st.session_state.show_values and st.session
 
 if chart_type == "Bar":
     if is_h:
-        fig.add_trace(go.Bar(y=labels, x=v1, orientation='h', marker_color=st.session_state.last_c1, text=v1 if st.session_state.show_values else "", textposition=bar_pos, textfont=val_font, cliponaxis=False))
+        fig.add_trace(go.Bar(y=labels, x=v1, orientation='h', marker_color=colors_v1, text=v1 if st.session_state.show_values else "", textposition=bar_pos, textfont=val_font, cliponaxis=False))
         if v2 is not None: fig.add_trace(go.Bar(y=labels, x=v2, orientation='h', marker_color=st.session_state.last_c2, text=v2 if st.session_state.show_values else "", textposition=bar_pos, textfont=val_font, cliponaxis=False))
     else:
-        fig.add_trace(go.Bar(x=labels, y=v1, marker_color=st.session_state.last_c1, text=v1 if st.session_state.show_values else "", textposition=bar_pos, textfont=val_font, cliponaxis=False))
+        fig.add_trace(go.Bar(x=labels, y=v1, marker_color=colors_v1, text=v1 if st.session_state.show_values else "", textposition=bar_pos, textfont=val_font, cliponaxis=False))
         if v2 is not None: fig.add_trace(go.Bar(x=labels, y=v2, marker_color=st.session_state.last_c2, text=v2 if st.session_state.show_values else "", textposition=bar_pos, textfont=val_font, cliponaxis=False))
 else:
     m_dict = dict(size=st.session_state.marker_size, symbol=st.session_state.marker_symbol)
-    fig.add_trace(go.Scatter(x=labels, y=v1, line=dict(color=st.session_state.last_c1, width=st.session_state.line_width), mode=line_mode, text=v1 if st.session_state.show_values else "", textposition="top center", textfont=val_font, marker=m_dict))
-    if v2 is not None: fig.add_trace(go.Scatter(x=labels, y=v2, line=dict(color=st.session_state.last_c2, width=st.session_state.line_width), mode=line_mode, text=v2 if st.session_state.show_values else "", textposition="top center", textfont=val_font, marker=m_dict))
+    # Scatter markers also support color lists for highlights
+    fig.add_trace(go.Scatter(x=labels, y=v1, line=dict(color=st.session_state.last_c1, width=st.session_state.line_width), mode=line_mode, text=v1 if st.session_state.show_values else "", textposition="top center", textfont=val_font, marker=dict(color=colors_v1, **m_dict)))
+    if v2 is not None: fig.add_trace(go.Scatter(x=labels, y=v2, line=dict(color=st.session_state.last_c2, width=st.session_state.line_width), mode=line_mode, text=v2 if st.session_state.show_values else "", textposition="top center", textfont=val_font, marker=dict(color=st.session_state.last_c2, **m_dict)))
 
 st.plotly_chart(fig, use_container_width=False, config={'displayModeBar': False})
 
