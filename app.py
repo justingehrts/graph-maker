@@ -88,7 +88,8 @@ c_up1, c_up2 = st.columns(2)
 with c_up1: st.file_uploader("📂 Import CSV/Excel", type=['csv', 'xlsx'], key="csv_uploader", on_change=handle_upload)
 with c_up2: st.file_uploader("💾 Load Project", type=['json'], key="json_uploader", on_change=handle_json)
 
-df_input = st.data_editor(st.session_state.main_df, num_rows="dynamic", use_container_width=True, key=f"editor_v{st.session_state.editor_key}", hide_index=True)
+# RESTORED ROW NUMBERS: hide_index=False ensures user can see indices for highlighting
+df_input = st.data_editor(st.session_state.main_df, num_rows="dynamic", use_container_width=True, key=f"editor_v{st.session_state.editor_key}", hide_index=False)
 if not df_input.equals(st.session_state.main_df):
     st.session_state.main_df = df_input
     st.rerun()
@@ -188,7 +189,6 @@ df_p = df_input.copy()
 labels, v1 = df_p["Label"], df_p["Value 1"]
 v2 = df_p["Value 2"] if (show_v2 and "Value 2" in df_p.columns) else None
 
-# Highlight logic: create a list of colors
 colors_v1 = [st.session_state.last_c1] * len(df_p)
 if st.session_state.highlight_idx != "None":
     try:
@@ -243,7 +243,6 @@ if chart_type == "Bar":
         if v2 is not None: fig.add_trace(go.Bar(x=labels, y=v2, marker_color=st.session_state.last_c2, text=v2 if st.session_state.show_values else "", textposition=bar_pos, textfont=val_font, cliponaxis=False))
 else:
     m_dict = dict(size=st.session_state.marker_size, symbol=st.session_state.marker_symbol)
-    # Scatter markers also support color lists for highlights
     fig.add_trace(go.Scatter(x=labels, y=v1, line=dict(color=st.session_state.last_c1, width=st.session_state.line_width), mode=line_mode, text=v1 if st.session_state.show_values else "", textposition="top center", textfont=val_font, marker=dict(color=colors_v1, **m_dict)))
     if v2 is not None: fig.add_trace(go.Scatter(x=labels, y=v2, line=dict(color=st.session_state.last_c2, width=st.session_state.line_width), mode=line_mode, text=v2 if st.session_state.show_values else "", textposition="top center", textfont=val_font, marker=dict(color=st.session_state.last_c2, **m_dict)))
 
