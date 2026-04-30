@@ -211,7 +211,7 @@ else:
 
 fig = go.Figure()
 
-# --- THE WIDESCREEN STRETCH FIX ---
+# --- THE ABSOLUTE STRETCH FIX ---
 l_pad = max(180, st.session_state.x_sz * 4) if is_h else max(130, st.session_state.y_sz * 2.8)
 b_pad = max(130, st.session_state.y_sz * 2.8) if is_h else max(130, st.session_state.x_sz * 3.2)
 x_tick_val = st.session_state.x_tick_step if st.session_state.x_tick_step > 0 else None
@@ -219,13 +219,13 @@ x_tick_val = st.session_state.x_tick_step if st.session_state.x_tick_step > 0 el
 fig.update_layout(
     font=dict(color=ui_color), width=width, height=height,
     autosize=False,
-    # Force right margin to 15 to push the plot to the edge
-    margin=dict(l=l_pad, r=15, t=15, b=b_pad), 
+    # Expand ensures the inner margins don't eat into the plot area
+    margin=dict(l=l_pad, r=20, t=20, b=b_pad, pad=0), 
     xaxis=dict(
         type='category' if st.session_state.x_tick_step > 0 else None, 
         dtick=x_tick_val,
-        # 'constrain' and 'scaleanchor' usually lock the aspect ratio; we remove them to stretch
-        constrain=None, 
+        # Domain [0, 1] forces the axis to fill the entire horizontal space assigned to it
+        domain=[0, 1],
         tickfont=dict(size=st.session_state.y_sz if is_h else st.session_state.x_sz, family=y_font if is_h else x_font), 
         tickangle=st.session_state.tick_angle if not is_h else 0,
         showline=True, linewidth=4, linecolor=ui_color,
