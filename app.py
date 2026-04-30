@@ -6,7 +6,7 @@ import json
 from datetime import datetime
 import os
 
-# --- 1. FONT CONFIGURATION (Relative Paths for Web) ---
+# --- 1. FONT CONFIGURATION ---
 path_reg = "ProximaNova-Regular.ttf"
 path_bold = "ProximaNova-Bold.ttf"
 
@@ -24,7 +24,7 @@ font_css_base = f"""
 @font-face {{ font-family: 'ProximaBold'; src: url(data:font/truetype;base64,{bold_b64}) format('truetype'); font-weight: bold; }}
 """
 
-st.set_page_config(page_title="Max Graphic Maker", layout="wide")
+st.set_page_config(page_title="Weather Graphic Pro", layout="wide")
 
 # --- 2. SESSION STATE ---
 if 'main_df' not in st.session_state:
@@ -40,12 +40,12 @@ state_defaults = {
     'editor_key': 0, 'line_width': 12, 'show_markers': True,
     'marker_size': 18, 'marker_symbol': 'circle',
     'bar_gap': 0.22, 'y_start_zero': True, 'text_choice': "White",
-    'width': 1000, 'height': 800, 'grid_layer': "Above Data",
+    'width': 1920, 'height': 1080, 'grid_layer': "Above Data",
     'x_bold': True, 'y_bold': True, 'y_step': 10.0,
     'x_sz': 28, 'y_sz': 28, 
     'show_values': False, 'value_sz': 24, 'value_bold': True,
     'highlight_idx': "None", 'highlight_color': '#FFD700',
-    'tick_angle': 0, 'x_tick_step': 1 # Default to every label
+    'tick_angle': 0, 'x_tick_step': 1
 }
 for key, val in state_defaults.items():
     if key not in st.session_state: st.session_state[key] = val
@@ -126,10 +126,8 @@ with st.sidebar:
     st.divider()
     st.write("**Highlight Point**")
     h_opts = ["None"] + list(range(len(df_input)))
-    try:
-        curr_h_idx = h_opts.index(st.session_state.highlight_idx)
-    except:
-        curr_h_idx = 0
+    try: curr_h_idx = h_opts.index(st.session_state.highlight_idx)
+    except: curr_h_idx = 0
     st.session_state.highlight_idx = st.selectbox("Index to Highlight", h_opts, index=curr_h_idx)
     st.session_state.highlight_color = st.color_picker("Highlight Color", value=st.session_state.highlight_color)
 
@@ -198,9 +196,9 @@ v2 = df_p["Value 2"] if (show_v2 and "Value 2" in df_p.columns) else None
 colors_v1 = [st.session_state.last_c1] * len(df_p)
 if st.session_state.highlight_idx != "None":
     try:
-        colors_v1[int(st.session_state.highlight_idx)] = st.session_state.highlight_color
-    except:
-        pass
+        h_target = int(st.session_state.highlight_idx)
+        if 0 <= h_target < len(colors_v1): colors_v1[h_target] = st.session_state.highlight_color
+    except: pass
 
 all_vals = pd.concat([v1, v2]) if (show_v2 and v2 is not None) else v1
 data_min, data_max = all_vals.min(), all_vals.max()
@@ -212,34 +210,33 @@ else:
     limit_range = [0, max(0, data_max) + (abs(max(0, data_max)) * 0.2 or 10)]
 
 fig = go.Figure()
+# WIDESCREEN OPTIMIZATION: Keep left padding for labels, but minimize right/top to force stretch
 l_pad = max(180, st.session_state.x_sz * 4) if is_h else max(130, st.session_state.y_sz * 2.8)
 b_pad = max(130, st.session_state.y_sz * 2.8) if is_h else max(130, st.session_state.x_sz * 3.2)
 
-# LABEL DENSITY LOGIC (Dynamic)
 x_tick_val = st.session_state.x_tick_step if st.session_state.x_tick_step > 0 else None
 
 fig.update_layout(
     font=dict(color=ui_color), width=width, height=height,
-    margin=dict(l=l_pad, r=max(100, st.session_state.x_sz*1.5), t=100, b=b_pad),
+    autosize=False, # FORCES THE SPECIFIED WIDTH/HEIGHT
+    margin=dict(l=l_pad, r=50, t=50, b=b_pad), # MINIMIZED RIGHT MARGIN
     xaxis=dict(
         type='category' if st.session_state.x_tick_step > 0 else None, 
-        dtick=x_tick_val,
+        dtick=x_tick_val, automargin=True,
         tickfont=dict(size=st.session_state.y_sz if is_h else st.session_state.x_sz, family=y_font if is_h else x_font), 
         tickangle=st.session_state.tick_angle if not is_h else 0,
         showline=True, linewidth=4, linecolor=ui_color,
         showgrid=True if is_h else False, gridcolor='rgba(128,128,128,0.3)',
-        range=limit_range if is_h else None,
-        zeroline=False, layer=l_val
+        range=limit_range if is_h else None, zeroline=False, layer=l_val
     ),
     yaxis=dict(
         type='category' if (is_h and st.session_state.x_tick_step > 0) else None, 
-        dtick=x_tick_val if is_h else st.session_state.y_step,
+        dtick=x_tick_val if is_h else st.session_state.y_step, automargin=True,
         tickfont=dict(size=st.session_state.x_sz if is_h else st.session_state.y_sz, family=x_font if is_h else y_font), 
         tickangle=st.session_state.tick_angle if is_h else 0,
         showline=True, linewidth=4, linecolor=ui_color,
         showgrid=False if is_h else True, gridcolor='rgba(128,128,128,0.3)',
-        range=None if is_h else limit_range,
-        zeroline=False, layer=l_val, autorange="reversed" if is_h else None
+        range=None if is_h else limit_range, zeroline=False, layer=l_val, autorange="reversed" if is_h else None
     ),
     bargap=st.session_state.bar_gap if chart_type == "Bar" else None,
     showlegend=False, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)'
@@ -251,10 +248,10 @@ line_mode = 'text+lines+markers' if (st.session_state.show_values and st.session
 
 if chart_type == "Bar":
     if is_h:
-        fig.add_trace(go.Bar(y=labels, x=v1, orientation='h', marker_color=colors_v1, text=v1 if st.session_state.show_values else "", textposition=bar_pos, textfont=val_font, cliponaxis=False))
+        fig.add_trace(go.Bar(y=labels, x=v1, orientation='h', marker=dict(color=colors_v1), text=v1 if st.session_state.show_values else "", textposition=bar_pos, textfont=val_font, cliponaxis=False))
         if v2 is not None: fig.add_trace(go.Bar(y=labels, x=v2, orientation='h', marker_color=st.session_state.last_c2, text=v2 if st.session_state.show_values else "", textposition=bar_pos, textfont=val_font, cliponaxis=False))
     else:
-        fig.add_trace(go.Bar(x=labels, y=v1, marker_color=colors_v1, text=v1 if st.session_state.show_values else "", textposition=bar_pos, textfont=val_font, cliponaxis=False))
+        fig.add_trace(go.Bar(x=labels, y=v1, marker=dict(color=colors_v1), text=v1 if st.session_state.show_values else "", textposition=bar_pos, textfont=val_font, cliponaxis=False))
         if v2 is not None: fig.add_trace(go.Bar(x=labels, y=v2, marker_color=st.session_state.last_c2, text=v2 if st.session_state.show_values else "", textposition=bar_pos, textfont=val_font, cliponaxis=False))
 else:
     m_dict = dict(size=st.session_state.marker_size, symbol=st.session_state.marker_symbol)
