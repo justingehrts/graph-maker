@@ -24,7 +24,7 @@ font_css_base = f"""
 @font-face {{ font-family: 'ProximaBold'; src: url(data:font/truetype;base64,{bold_b64}) format('truetype'); font-weight: bold; }}
 """
 
-st.set_page_config(page_title="Weather Graphic Pro", layout="wide")
+st.set_page_config(page_title="Max Graph Maker", layout="wide")
 
 # --- 2. SESSION STATE ---
 if 'main_df' not in st.session_state:
@@ -44,7 +44,8 @@ state_defaults = {
     'x_bold': True, 'y_bold': True, 'y_step': 10.0,
     'x_sz': 28, 'y_sz': 28, 
     'show_values': False, 'value_sz': 24, 'value_bold': True,
-    'highlight_idx': "None", 'highlight_color': '#FFD700'
+    'highlight_idx': "None", 'highlight_color': '#FFD700',
+    'tick_angle': 0
 }
 for key, val in state_defaults.items():
     if key not in st.session_state: st.session_state[key] = val
@@ -78,7 +79,8 @@ def handle_json():
             'show_values': s.get('show_values', False), 'value_sz': s.get('value_sz', 24), 
             'value_bold': s.get('value_bold', True),
             'highlight_idx': s.get('highlight_idx', "None"),
-            'highlight_color': s.get('highlight_color', '#FFD700')
+            'highlight_color': s.get('highlight_color', '#FFD700'),
+            'tick_angle': s.get('tick_angle', 0)
         })
         st.session_state.editor_key += 1
 
@@ -88,7 +90,6 @@ c_up1, c_up2 = st.columns(2)
 with c_up1: st.file_uploader("📂 Import CSV/Excel", type=['csv', 'xlsx'], key="csv_uploader", on_change=handle_upload)
 with c_up2: st.file_uploader("💾 Load Project", type=['json'], key="json_uploader", on_change=handle_json)
 
-# RESTORED ROW NUMBERS: hide_index=False ensures user can see indices for highlighting
 df_input = st.data_editor(st.session_state.main_df, num_rows="dynamic", use_container_width=True, key=f"editor_v{st.session_state.editor_key}", hide_index=False)
 if not df_input.equals(st.session_state.main_df):
     st.session_state.main_df = df_input
@@ -147,6 +148,7 @@ with st.sidebar:
     step_label = "X-Axis Interval" if st.session_state.orientation == "Horizontal" else "Y-Axis Interval"
     st.session_state.y_step = st.number_input(step_label, min_value=0.1, value=float(st.session_state.y_step), step=1.0)
     
+    st.session_state.tick_angle = st.slider("Label Angle", -90, 90, value=st.session_state.tick_angle)
     st.session_state.x_sz = st.slider("Axis Label Size", 12, 120, st.session_state.x_sz)
     st.session_state.x_bold = st.checkbox("Axis Label Bold", value=st.session_state.x_bold)
     st.session_state.y_sz = st.slider("Axis Value Size", 12, 120, st.session_state.y_sz)
@@ -170,7 +172,7 @@ with st.sidebar:
     st.session_state.last_c2 = c2_pick.color_picker("S2 Color", value=st.session_state.last_c2)
 
     st.divider()
-    st.download_button("💾 SAVE PROJECT", data=json.dumps({"data": df_input.to_dict(orient='records'), "settings": {"color_v1": st.session_state.last_c1, "color_v2": st.session_state.last_c2, "show_v2": show_v2, "chart_type": chart_type, "orientation": st.session_state.orientation, "line_width": st.session_state.line_width, "show_markers": st.session_state.show_markers, "marker_size": st.session_state.marker_size, "marker_symbol": st.session_state.marker_symbol, "bar_gap": st.session_state.bar_gap, "y_start_zero": y_start_zero, "width": width, "height": height, "text_choice": st.session_state.text_choice, "x_bold": st.session_state.x_bold, "y_bold": st.session_state.y_bold, "x_sz": st.session_state.x_sz, "y_sz": st.session_state.y_sz, "grid_layer": grid_choice, "y_step": st.session_state.y_step, "show_values": st.session_state.show_values, "value_sz": st.session_state.value_sz, "value_bold": st.session_state.value_bold, "highlight_idx": st.session_state.highlight_idx, "highlight_color": st.session_state.highlight_color}}), file_name=f"weather_project_{datetime.now().strftime('%Y%m%d')}.json")
+    st.download_button("💾 SAVE PROJECT", data=json.dumps({"data": df_input.to_dict(orient='records'), "settings": {"color_v1": st.session_state.last_c1, "color_v2": st.session_state.last_c2, "show_v2": show_v2, "chart_type": chart_type, "orientation": st.session_state.orientation, "line_width": st.session_state.line_width, "show_markers": st.session_state.show_markers, "marker_size": st.session_state.marker_size, "marker_symbol": st.session_state.marker_symbol, "bar_gap": st.session_state.bar_gap, "y_start_zero": y_start_zero, "width": width, "height": height, "text_choice": st.session_state.text_choice, "x_bold": st.session_state.x_bold, "y_bold": st.session_state.y_bold, "x_sz": st.session_state.x_sz, "y_sz": st.session_state.y_sz, "grid_layer": grid_choice, "y_step": st.session_state.y_step, "show_values": st.session_state.show_values, "value_sz": st.session_state.value_sz, "value_bold": st.session_state.value_bold, "highlight_idx": st.session_state.highlight_idx, "highlight_color": st.session_state.highlight_color, "tick_angle": st.session_state.tick_angle}}), file_name=f"weather_project_{datetime.now().strftime('%Y%m%d')}.json")
 
 # --- 6. GRAPH LOGIC ---
 is_h = (st.session_state.orientation == "Horizontal")
@@ -213,20 +215,21 @@ fig.update_layout(
     font=dict(color=ui_color), width=width, height=height,
     margin=dict(l=l_pad, r=max(100, st.session_state.x_sz*1.5), t=100, b=b_pad),
     xaxis=dict(
+        type='category', dtick=1, # FORCE ALL LABELS
         tickfont=dict(size=st.session_state.y_sz if is_h else st.session_state.x_sz, family=y_font if is_h else x_font), 
+        tickangle=st.session_state.tick_angle if not is_h else 0,
         showline=True, linewidth=4, linecolor=ui_color,
         showgrid=True if is_h else False, gridcolor='rgba(128,128,128,0.3)',
-        range=limit_range if is_h else None, dtick=st.session_state.y_step if is_h else None,
+        range=limit_range if is_h else None,
         zeroline=False, layer=l_val
-        type='category', 
-        tickmode='linear',  # Forces Plotly to show every tick
-        tickfont=dict(size=st.session_state.x_sz, family=x_font),
     ),
     yaxis=dict(
+        type='category' if is_h else None, dtick=1 if is_h else st.session_state.y_step, # FORCE ALL LABELS
         tickfont=dict(size=st.session_state.x_sz if is_h else st.session_state.y_sz, family=x_font if is_h else y_font), 
+        tickangle=st.session_state.tick_angle if is_h else 0,
         showline=True, linewidth=4, linecolor=ui_color,
         showgrid=False if is_h else True, gridcolor='rgba(128,128,128,0.3)',
-        range=None if is_h else limit_range, dtick=None if is_h else st.session_state.y_step,
+        range=None if is_h else limit_range,
         zeroline=False, layer=l_val, autorange="reversed" if is_h else None
     ),
     bargap=st.session_state.bar_gap if chart_type == "Bar" else None,
