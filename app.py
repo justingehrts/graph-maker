@@ -211,7 +211,7 @@ else:
 
 fig = go.Figure()
 
-# --- THE ABSOLUTE 16:9 STRETCH OVERRIDE ---
+# --- THE ASPECT RATIO KILLER ---
 l_pad = max(180, st.session_state.x_sz * 4) if is_h else max(130, st.session_state.y_sz * 2.8)
 b_pad = max(130, st.session_state.y_sz * 2.8) if is_h else max(130, st.session_state.x_sz * 3.2)
 x_tick_val = st.session_state.x_tick_step if st.session_state.x_tick_step > 0 else None
@@ -219,15 +219,15 @@ x_tick_val = st.session_state.x_tick_step if st.session_state.x_tick_step > 0 el
 fig.update_layout(
     font=dict(color=ui_color), width=width, height=height,
     autosize=False,
-    # Forcing zero padding in the margin pad to ensure no invisible buffer
     margin=dict(l=l_pad, r=30, t=30, b=b_pad, pad=0), 
     xaxis=dict(
         type='category' if st.session_state.x_tick_step > 0 else None, 
         dtick=x_tick_val,
-        # 'matches=None' and 'fixedrange=True' help stop internal aspect ratio locking
-        matches=None,
-        # Force the axis to use 100% of the horizontal domain
+        # FORCE DOMAIN TO 100% WIDTH
         domain=[0, 1],
+        # BREAK THE LINK TO THE Y-AXIS SCALE
+        scaleanchor=None, 
+        constrain=None,
         tickfont=dict(size=st.session_state.y_sz if is_h else st.session_state.x_sz, family=y_font if is_h else x_font), 
         tickangle=st.session_state.tick_angle if not is_h else 0,
         showline=True, linewidth=4, linecolor=ui_color,
@@ -237,8 +237,11 @@ fig.update_layout(
     yaxis=dict(
         type='category' if (is_h and st.session_state.x_tick_step > 0) else None, 
         dtick=x_tick_val if is_h else st.session_state.y_step,
-        # Force the vertical axis to use 100% of the vertical domain
+        # FORCE DOMAIN TO 100% HEIGHT
         domain=[0, 1],
+        # BREAK THE LINK TO THE X-AXIS SCALE
+        scaleanchor=None,
+        constrain=None,
         tickfont=dict(size=st.session_state.x_sz if is_h else st.session_state.y_sz, family=x_font if is_h else y_font), 
         tickangle=st.session_state.tick_angle if is_h else 0,
         showline=True, linewidth=4, linecolor=ui_color,
