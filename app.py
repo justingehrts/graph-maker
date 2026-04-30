@@ -218,6 +218,9 @@ fig.update_layout(
         showgrid=True if is_h else False, gridcolor='rgba(128,128,128,0.3)',
         range=limit_range if is_h else None, dtick=st.session_state.y_step if is_h else None,
         zeroline=False, layer=l_val
+        type='category', 
+        tickmode='linear',  # Forces Plotly to show every tick
+        tickfont=dict(size=st.session_state.x_sz, family=x_font),
     ),
     yaxis=dict(
         tickfont=dict(size=st.session_state.x_sz if is_h else st.session_state.y_sz, family=x_font if is_h else y_font), 
