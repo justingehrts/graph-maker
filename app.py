@@ -205,9 +205,9 @@ data_min, data_max = all_vals.min(), all_vals.max()
 
 if not y_start_zero:
     v_range = abs(data_max - data_min) if data_max != data_min else 10
-    limit_range = [data_min - (v_range * 0.15), data_max + (v_range * 0.25)]
+    limit_range = [data_min - (v_range * 0.15), data_max + (v_range * 0.15)]
 else:
-    limit_range = [0, max(0, data_max) + (abs(max(0, data_max)) * 0.2 or 10)]
+    limit_range = [0, max(0, data_max) + (abs(max(0, data_max)) * 0.15 or 10)]
 
 fig = go.Figure()
 
@@ -220,14 +220,12 @@ fig.update_layout(
     width=width, 
     height=height,
     autosize=False,
-    # Standard margins to push plot toward edges
-    margin=dict(l=l_pad, r=40, t=40, b=b_pad, pad=0),
+    margin=dict(l=l_pad, r=80, t=80, b=b_pad, pad=0),
     xaxis=dict(
         type='category' if st.session_state.x_tick_step > 0 else None, 
         dtick=x_tick_val,
-        domain=[0, 1], # Use full width
-        scaleanchor=None, # BREAK ASPECT RATIO LOCK
-        constrain='domain', # ALLOW HORIZONTAL STRETCH
+        # ASPECT RATIO RE-LOCKED to right-side image behavior
+        constrain='domain',
         tickfont=dict(size=st.session_state.y_sz if is_h else st.session_state.x_sz, family=y_font if is_h else x_font), 
         tickangle=st.session_state.tick_angle if not is_h else 0,
         showline=True, linewidth=4, linecolor=ui_color,
@@ -237,8 +235,6 @@ fig.update_layout(
     yaxis=dict(
         type='category' if (is_h and st.session_state.x_tick_step > 0) else None, 
         dtick=x_tick_val if is_h else st.session_state.y_step,
-        domain=[0, 1], # Use full height
-        scaleanchor=None,
         constrain='domain',
         tickfont=dict(size=st.session_state.x_sz if is_h else st.session_state.y_sz, family=x_font if is_h else y_font), 
         tickangle=st.session_state.tick_angle if is_h else 0,
