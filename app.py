@@ -45,7 +45,7 @@ state_defaults = {
     'x_sz': 28, 'y_sz': 28, 
     'show_values': False, 'value_sz': 24, 'value_bold': True,
     'highlight_idx': "None", 'highlight_color': '#FFD700',
-    'tick_angle': 0, 'x_tick_step': 1
+    'tick_angle': 0, 'x_tick_step': 0
 }
 for key, val in state_defaults.items():
     if key not in st.session_state: st.session_state[key] = val
@@ -71,8 +71,8 @@ def handle_json():
             'orientation': s.get('orientation', "Vertical"), 'line_width': s.get('line_width', 12), 
             'show_markers': s.get('show_markers', True), 'marker_size': s.get('marker_size', 18), 
             'marker_symbol': s.get('marker_symbol', 'circle'), 'bar_gap': s.get('bar_gap', 0.22), 
-            'y_start_zero': s.get('y_start_zero', True), 'width': s.get('width', 1000), 
-            'height': s.get('height', 800), 'text_choice': s.get('text_choice', "White"), 
+            'y_start_zero': s.get('y_start_zero', True), 'width': s.get('width', 1920), 
+            'height': s.get('height', 1080), 'text_choice': s.get('text_choice', "White"), 
             'x_bold': s.get('x_bold', True), 'y_bold': s.get('y_bold', True), 
             'grid_layer': s.get('grid_layer', "Above Data"), 'y_step': s.get('y_step', 10.0), 
             'x_sz': s.get('x_sz', 28), 'y_sz': s.get('y_sz', 28),
@@ -81,7 +81,7 @@ def handle_json():
             'highlight_idx': s.get('highlight_idx', "None"),
             'highlight_color': s.get('highlight_color', '#FFD700'),
             'tick_angle': s.get('tick_angle', 0),
-            'x_tick_step': s.get('x_tick_step', 1)
+            'x_tick_step': s.get('x_tick_step', 0)
         })
         st.session_state.editor_key += 1
 
@@ -205,46 +205,42 @@ data_min, data_max = all_vals.min(), all_vals.max()
 
 if not y_start_zero:
     v_range = abs(data_max - data_min) if data_max != data_min else 10
-    limit_range = [data_min - (v_range * 0.15), data_max + (v_range * 0.25)]
+    limit_range = [data_min - (v_range * 0.1), data_max + (v_range * 0.1)]
 else:
-    limit_range = [0, max(0, data_max) + (abs(max(0, data_max)) * 0.2 or 10)]
+    limit_range = [0, max(0, data_max) + (abs(max(0, data_max)) * 0.15)]
 
 fig = go.Figure()
 
-# CRITICAL PADDING ADJUSTMENT
+# --- REVERTING TO APRIL 26 MARGIN & AXIS LOGIC ---
 l_pad = max(180, st.session_state.x_sz * 4) if is_h else max(130, st.session_state.y_sz * 2.8)
 b_pad = max(130, st.session_state.y_sz * 2.8) if is_h else max(130, st.session_state.x_sz * 3.2)
 x_tick_val = st.session_state.x_tick_step if st.session_state.x_tick_step > 0 else None
 
 fig.update_layout(
-    font=dict(color=ui_color), width=width, height=height,
-    autosize=False,
-    # Setting right and top margins very tight to force use of space
-    margin=dict(l=l_pad, r=30, t=30, b=b_pad, pad=0),
+    font=dict(color=ui_color), 
+    width=width, 
+    height=height,
+    autosize=True, # April 26 relied on container autosizing
+    margin=dict(l=l_pad, r=80, t=100, b=b_pad), # April 26 standard margins
     xaxis=dict(
+        # We only use 'category' if specifically requested via interval > 0
         type='category' if st.session_state.x_tick_step > 0 else None, 
         dtick=x_tick_val,
-        # FORCE STRETCH
-        domain=[0, 1],
-        scaleanchor=None,
-        constrain='domain', # Allows the axis to stretch to fill the 1920px width
         tickfont=dict(size=st.session_state.y_sz if is_h else st.session_state.x_sz, family=y_font if is_h else x_font), 
         tickangle=st.session_state.tick_angle if not is_h else 0,
         showline=True, linewidth=4, linecolor=ui_color,
         showgrid=True if is_h else False, gridcolor='rgba(128,128,128,0.3)',
-        range=limit_range if is_h else None, zeroline=False, layer=l_val
+        range=limit_range if is_h else None,
+        zeroline=False, layer=l_val
     ),
     yaxis=dict(
-        type='category' if (is_h and st.session_state.x_tick_step > 0) else None, 
-        dtick=x_tick_val if is_h else st.session_state.y_step,
-        domain=[0, 1],
-        scaleanchor=None,
-        constrain='domain',
+        # Standard y-axis behavior from April 26
         tickfont=dict(size=st.session_state.x_sz if is_h else st.session_state.y_sz, family=x_font if is_h else y_font), 
-        tickangle=st.session_state.tick_angle if is_h else 0,
         showline=True, linewidth=4, linecolor=ui_color,
         showgrid=False if is_h else True, gridcolor='rgba(128,128,128,0.3)',
-        range=None if is_h else limit_range, zeroline=False, layer=l_val, autorange="reversed" if is_h else None
+        dtick=st.session_state.y_step,
+        range=None if is_h else limit_range,
+        zeroline=False, layer=l_val, autorange="reversed" if is_h else None
     ),
     bargap=st.session_state.bar_gap if chart_type == "Bar" else None,
     showlegend=False, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)'
@@ -266,7 +262,7 @@ else:
     fig.add_trace(go.Scatter(x=labels, y=v1, line=dict(color=st.session_state.last_c1, width=st.session_state.line_width), mode=line_mode, text=v1 if st.session_state.show_values else "", textposition="top center", textfont=val_font, marker=dict(color=colors_v1, **m_dict)))
     if v2 is not None: fig.add_trace(go.Scatter(x=labels, y=v2, line=dict(color=st.session_state.last_c2, width=st.session_state.line_width), mode=line_mode, text=v2 if st.session_state.show_values else "", textposition="top center", textfont=val_font, marker=dict(color=st.session_state.last_c2, **m_dict)))
 
-st.plotly_chart(fig, use_container_width=False, config={'displayModeBar': False})
+st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
 
 # --- 7. PNG EXPORT ---
 t_stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
