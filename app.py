@@ -216,14 +216,18 @@ b_pad = max(130, st.session_state.y_sz * 2.8) if is_h else max(130, st.session_s
 x_tick_val = st.session_state.x_tick_step if st.session_state.x_tick_step > 0 else None
 
 fig.update_layout(
-    font=dict(color=ui_color), width=width, height=height,
+    font=dict(color=ui_color), 
+    width=width, 
+    height=height,
     autosize=False,
+    # Standard margins, but pad=0 to kill invisible internal buffering
     margin=dict(l=l_pad, r=80, t=80, b=b_pad, pad=0),
     xaxis=dict(
         type='category' if st.session_state.x_tick_step > 0 else None, 
         dtick=x_tick_val,
-        domain=[0, 1], # Force horizontal stretch
-        scaleanchor=None, # Divorce axes
+        # THE NUCLEAR OPTION: Breaking Plotly's aspect ratio lock
+        domain=[0, 1], # Force horizontal stretch to edges
+        scaleanchor=None, 
         constrain=None, 
         matches=None,
         tickfont=dict(size=st.session_state.y_sz if is_h else st.session_state.x_sz, family=y_font if is_h else x_font), 
@@ -235,8 +239,8 @@ fig.update_layout(
     yaxis=dict(
         type='category' if (is_h and st.session_state.x_tick_step > 0) else None, 
         dtick=x_tick_val if is_h else st.session_state.y_step,
-        domain=[0, 1], # Force vertical stretch
-        scaleanchor=None, # Divorce axes
+        domain=[0, 1], # Force vertical stretch to edges
+        scaleanchor=None,
         constrain=None,
         matches=None,
         tickfont=dict(size=st.session_state.x_sz if is_h else st.session_state.y_sz, family=x_font if is_h else y_font), 
