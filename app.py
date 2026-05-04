@@ -24,7 +24,7 @@ font_css_base = f"""
 @font-face {{ font-family: 'ProximaBold'; src: url(data:font/truetype;base64,{bold_b64}) format('truetype'); font-weight: bold; }}
 """
 
-st.set_page_config(page_title="Max Graph Maker", layout="wide")
+st.set_page_config(page_title="Weather Graphic Pro", layout="wide")
 
 # --- 2. SESSION STATE ---
 if 'main_df' not in st.session_state:
@@ -216,13 +216,17 @@ b_pad = max(130, st.session_state.y_sz * 2.8) if is_h else max(130, st.session_s
 x_tick_val = st.session_state.x_tick_step if st.session_state.x_tick_step > 0 else None
 
 fig.update_layout(
-    font=dict(color=ui_color), width=width, height=height,
-    autosize=False, # STOP LISTENING TO BROWSER SIZE
+    font=dict(color=ui_color), 
+    width=width, 
+    height=height,
+    autosize=False,
+    # Standard margins, no padding to ensure slave-to-width
     margin=dict(l=l_pad, r=80, t=80, b=b_pad, pad=0),
     xaxis=dict(
         type='category' if st.session_state.x_tick_step > 0 else None, 
         dtick=x_tick_val,
-        domain=[0, 1], # USE FULL WIDTH NO MATTER WHAT
+        domain=[0, 1], # Forces full width occupancy
+        matches=None, # Breaks the lock with other axes
         tickfont=dict(size=st.session_state.y_sz if is_h else st.session_state.x_sz, family=y_font if is_h else x_font), 
         tickangle=st.session_state.tick_angle if not is_h else 0,
         showline=True, linewidth=4, linecolor=ui_color,
@@ -232,7 +236,8 @@ fig.update_layout(
     yaxis=dict(
         type='category' if (is_h and st.session_state.x_tick_step > 0) else None, 
         dtick=x_tick_val if is_h else st.session_state.y_step,
-        domain=[0, 1], # USE FULL HEIGHT NO MATTER WHAT
+        domain=[0, 1], # Forces full height occupancy
+        matches=None,
         tickfont=dict(size=st.session_state.x_sz if is_h else st.session_state.y_sz, family=x_font if is_h else y_font), 
         tickangle=st.session_state.tick_angle if is_h else 0,
         showline=True, linewidth=4, linecolor=ui_color,
