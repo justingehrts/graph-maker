@@ -216,20 +216,13 @@ b_pad = max(130, st.session_state.y_sz * 2.8) if is_h else max(130, st.session_s
 x_tick_val = st.session_state.x_tick_step if st.session_state.x_tick_step > 0 else None
 
 fig.update_layout(
-    font=dict(color=ui_color), 
-    width=width, 
-    height=height,
+    font=dict(color=ui_color), width=width, height=height,
     autosize=False,
-    # Standard margins, but pad=0 to kill invisible internal buffering
     margin=dict(l=l_pad, r=80, t=80, b=b_pad, pad=0),
     xaxis=dict(
         type='category' if st.session_state.x_tick_step > 0 else None, 
         dtick=x_tick_val,
-        # THE NUCLEAR OPTION: Breaking Plotly's aspect ratio lock
-        domain=[0, 1], # Force horizontal stretch to edges
-        scaleanchor=None, 
-        constrain=None, 
-        matches=None,
+        domain=[0, 1], 
         tickfont=dict(size=st.session_state.y_sz if is_h else st.session_state.x_sz, family=y_font if is_h else x_font), 
         tickangle=st.session_state.tick_angle if not is_h else 0,
         showline=True, linewidth=4, linecolor=ui_color,
@@ -239,10 +232,7 @@ fig.update_layout(
     yaxis=dict(
         type='category' if (is_h and st.session_state.x_tick_step > 0) else None, 
         dtick=x_tick_val if is_h else st.session_state.y_step,
-        domain=[0, 1], # Force vertical stretch to edges
-        scaleanchor=None,
-        constrain=None,
-        matches=None,
+        domain=[0, 1],
         tickfont=dict(size=st.session_state.x_sz if is_h else st.session_state.y_sz, family=x_font if is_h else y_font), 
         tickangle=st.session_state.tick_angle if is_h else 0,
         showline=True, linewidth=4, linecolor=ui_color,
@@ -271,33 +261,42 @@ else:
 
 st.plotly_chart(fig, use_container_width=False, config={'displayModeBar': False})
 
-# --- 7. PNG EXPORT ---
+# --- 7. PNG EXPORT (EXTERNAL WINDOW) ---
 t_stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-if st.button("🚀 DOWNLOAD PNG"):
+if st.button("🚀 EXPORT PREVIEW (NEW WINDOW)"):
+    # Generate the JSON and CSS for the external window
     clean_css = font_css_base.replace('\n', ' ').replace('\r', '')
+    fig_json = fig.to_json()
+    
     js = f"""
     <script>
     (function() {{
-        const g = window.parent.document.querySelector('.js-plotly-plot');
-        if (!g) return;
-        const svg = g.querySelector('svg.main-svg');
-        const cln = svg.cloneNode(true);
-        cln.setAttribute("width", "{width}"); cln.setAttribute("height", "{height}"); cln.setAttribute("viewBox", "0 0 {width} {height}");
-        const gridLayer = cln.querySelector('.gridlayer');
-        if (gridLayer && "{grid_choice}" === "Above Data") {{ cln.appendChild(gridLayer); }}
-        const s = document.createElementNS("http://www.w3.org/2000/svg", "style");
-        s.textContent = `{clean_css} text {{ fill: {ui_color} !important; }}`;
-        cln.insertBefore(s, cln.firstChild);
-        const xml = new XMLSerializer().serializeToString(cln);
-        const img = new Image();
-        img.onload = function() {{
-            const canvas = document.createElement('canvas');
-            canvas.width = {width}; canvas.height = {height};
-            const ctx = canvas.getContext('2d'); ctx.drawImage(img, 0, 0);
-            const a = document.createElement("a");
-            a.href = canvas.toDataURL("image/png"); a.download = "weather_graphic_{t_stamp}.png"; a.click();
-        }};
-        img.src = "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(xml)));
+        const w = window.open('', '_blank');
+        const d = w.document;
+        d.write(`
+            <html>
+            <head>
+                <title>Export Preview</title>
+                <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+                <style>
+                    body, html {{ margin: 0; padding: 0; overflow: auto; background: #111; }}
+                    #target {{ width: {width}px; height: {height}px; }}
+                    {clean_css}
+                </style>
+            </head>
+            <body>
+                <div id="target"></div>
+                <script>
+                    const data = {fig_json};
+                    data.layout.autosize = false;
+                    data.layout.width = {width};
+                    data.layout.height = {height};
+                    Plotly.newPlot('target', data.data, data.layout, {{displayModeBar: false, staticPlot: true}});
+                </script>
+            </body>
+            </html>
+        `);
+        d.close();
     }})();
     </script>
     """
