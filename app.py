@@ -37,7 +37,7 @@ state_defaults = {
     'show_values': False, 'value_sz': 24, 'value_bold': True,
     'highlight_idx': "None", 'highlight_color': '#FFD700',
     'line_width': 8, 'marker_size': 15, 'marker_symbol': 'Circle',
-    'editor_key': 0, 'grid_layer': "Above Data"
+    'editor_key': 0
 }
 for key, val in state_defaults.items():
     if key not in st.session_state: st.session_state[key] = val
@@ -75,7 +75,6 @@ with st.sidebar:
     else:
         st.session_state.bar_gap = st.slider("Bar Spacing / Gap", 0.0, 0.9, value=st.session_state.bar_gap)
     
-    st.session_state.grid_layer = st.radio("Grid Layer", ["Below Data", "Above Data"], index=1 if st.session_state.grid_layer == "Above Data" else 0)
     st.session_state.show_v2 = st.checkbox("Show Second Series", value=st.session_state.show_v2)
     st.session_state.y_start_zero = st.checkbox("Force Axis to 0", value=st.session_state.y_start_zero)
     
@@ -120,7 +119,8 @@ c1, c2 = st.columns(2)
 with c1: st.file_uploader("📂 Import CSV/Excel", type=['csv','xlsx'], key="csv_uploader", on_change=handle_upload)
 with c2: st.file_uploader("💾 Load Project", type=['json'], key="json_uploader", on_change=handle_json)
 
-df_input = st.data_editor(st.session_state.main_df, num_rows="dynamic", use_container_width=True, key=f"editor_{st.session_state.editor_key}")
+# hide_index=False restores row numbers
+df_input = st.data_editor(st.session_state.main_df, num_rows="dynamic", use_container_width=True, key=f"editor_{st.session_state.editor_key}", hide_index=False)
 if not df_input.equals(st.session_state.main_df):
     st.session_state.main_df = df_input
     st.rerun()
@@ -139,12 +139,12 @@ ax.set_facecolor('none')
 labels = df_input["Label"].tolist()
 v1 = df_input["Value 1"].tolist()
 x = range(len(labels))
-grid_z = 5 if st.session_state.grid_layer == "Above Data" else 1
 
 symbol_map = {"Circle": "o", "Square": "s", "Triangle": "^", "Diamond": "D"}
 m_sym = symbol_map.get(st.session_state.marker_symbol, "o")
 val_font = prop_bold if st.session_state.value_bold else prop_reg
 
+# Data Z-order 2 puts bars behind the axis lines (z=4)
 if st.session_state.chart_type == "Bar":
     width_val = 0.8 - st.session_state.bar_gap
     colors = [st.session_state.last_c1] * len(v1)
@@ -154,13 +154,13 @@ if st.session_state.chart_type == "Bar":
         
     if st.session_state.show_v2 and "Value 2" in df_input.columns:
         v2 = df_input["Value 2"].tolist()
-        r1 = ax.bar([i - width_val/4 for i in x], v1, width=width_val/2, color=st.session_state.last_c1, zorder=3)
-        r2 = ax.bar([i + width_val/4 for i in x], v2, width=width_val/2, color=st.session_state.last_c2, zorder=3)
+        r1 = ax.bar([i - width_val/4 for i in x], v1, width=width_val/2, color=st.session_state.last_c1, zorder=2)
+        r2 = ax.bar([i + width_val/4 for i in x], v2, width=width_val/2, color=st.session_state.last_c2, zorder=2)
         if st.session_state.show_values:
             ax.bar_label(r1, padding=5, color=txt_col, fontproperties=val_font, fontsize=st.session_state.value_sz, fmt='%g')
             ax.bar_label(r2, padding=5, color=txt_col, fontproperties=val_font, fontsize=st.session_state.value_sz, fmt='%g')
     else:
-        r = ax.bar(x, v1, width=width_val, color=colors, zorder=3)
+        r = ax.bar(x, v1, width=width_val, color=colors, zorder=2)
         if st.session_state.show_values:
             ax.bar_label(r, padding=5, color=txt_col, fontproperties=val_font, fontsize=st.session_state.value_sz, fmt='%g')
 else:
@@ -169,28 +169,27 @@ else:
         try: m_colors[int(st.session_state.highlight_idx)] = st.session_state.highlight_color
         except: pass
 
-    ax.plot(x, v1, color=st.session_state.last_c1, linewidth=st.session_state.line_width, zorder=3)
-    ax.scatter(x, v1, color=m_colors, s=st.session_state.marker_size**2, marker=m_sym, zorder=4)
+    ax.plot(x, v1, color=st.session_state.last_c1, linewidth=st.session_state.line_width, zorder=2)
+    ax.scatter(x, v1, color=m_colors, s=st.session_state.marker_size**2, marker=m_sym, zorder=3)
     
     if st.session_state.show_v2 and "Value 2" in df_input.columns:
         v2 = df_input["Value 2"].tolist()
-        ax.plot(x, v2, color=st.session_state.last_c2, linewidth=st.session_state.line_width, marker=m_sym, markersize=st.session_state.marker_size, zorder=3)
+        ax.plot(x, v2, color=st.session_state.last_c2, linewidth=st.session_state.line_width, marker=m_sym, markersize=st.session_state.marker_size, zorder=2)
     
     if st.session_state.show_values:
         for i, v in enumerate(v1):
             clean_val = f"{v:g}" 
             ax.text(i, v + (max(v1 or [1])*0.03), clean_val, color=txt_col, fontproperties=val_font, fontsize=st.session_state.value_sz, ha='center', zorder=5)
 
-# Axis & Tick Overrides for Thickness
+# Axis & Tick Overrides
 ax.set_xticks(x)
 ax.set_xticklabels(labels, fontproperties=prop_bold if st.session_state.x_bold else prop_reg, fontsize=st.session_state.x_sz, color=txt_col)
 ax.yaxis.set_major_locator(plt.MultipleLocator(st.session_state.y_step))
 
-# THICKNESS SETTINGS
-axis_thickness = 4.0 # Thick frame lines
-tick_thickness = 3.0 # Thick tick marks
+axis_thickness = 4.0
+tick_thickness = 3.0
 
-ax.tick_params(axis='both', colors=txt_col, labelsize=st.session_state.y_sz, width=tick_thickness, length=8)
+ax.tick_params(axis='both', colors=txt_col, labelsize=st.session_state.y_sz, width=tick_thickness, length=8, zorder=4)
 for label in ax.get_yticklabels():
     label.set_fontproperties(prop_bold if st.session_state.y_bold else prop_reg)
     label.set_fontsize(st.session_state.y_sz)
@@ -198,15 +197,18 @@ for label in ax.get_yticklabels():
 all_data = v1 + (df_input["Value 2"].tolist() if (st.session_state.show_v2 and "Value 2" in df_input.columns) else [])
 ax.set_ylim(0 if st.session_state.y_start_zero else min(all_data or [0]) * 0.9, max(all_data or [10]) * 1.25)
 
-# Thickening the Spine Lines
+# Thickened Spines with high zorder to sit in front of bars
 ax.spines['top'].set_visible(False)
 ax.spines['right'].set_visible(False)
 ax.spines['left'].set_linewidth(axis_thickness)
 ax.spines['left'].set_color(txt_col)
+ax.spines['left'].set_zorder(4)
 ax.spines['bottom'].set_linewidth(axis_thickness)
 ax.spines['bottom'].set_color(txt_col)
+ax.spines['bottom'].set_zorder(4)
 
-ax.grid(True, axis='y', color='gray', linestyle='-', alpha=0.3, zorder=grid_z)
+# Fixed Grid
+ax.grid(True, axis='y', color='gray', linestyle='-', alpha=0.3, zorder=1)
 
 # --- 8. EXPORT ---
 buf = io.BytesIO()
