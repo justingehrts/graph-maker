@@ -104,14 +104,12 @@ with st.sidebar:
     txt_col = color_map[st.session_state.text_choice]
 
     st.write("**Data Colors**")
-    favs = st.columns(4)
-    if favs[0].button("RB"): st.session_state.last_c1 = '#045EA8'; st.rerun()
-    if favs[1].button("NY"): st.session_state.last_c1 = '#022E67'; st.rerun()
-    if favs[2].button("RD"): st.session_state.last_c1 = '#C80000'; st.rerun()
-    if favs[3].button("WT"): st.session_state.last_c1 = '#FFFFFF'; st.rerun()
-    
     st.session_state.last_c1 = st.color_picker("S1 Picker", value=st.session_state.last_c1)
     st.session_state.last_c2 = st.color_picker("S2 Color", value=st.session_state.last_c2)
+    
+    # Mechanical "OK" button to force a rerun
+    if st.button("🔄 APPLY SETTINGS"):
+        st.rerun()
 
 # --- 5. DATA INPUT ---
 st.subheader("Data Input")
@@ -121,8 +119,7 @@ with c2: st.file_uploader("💾 Load Project", type=['json'], key="json_uploader
 
 df_input = st.data_editor(st.session_state.main_df, num_rows="dynamic", use_container_width=True, key=f"editor_{st.session_state.editor_key}", hide_index=False)
 
-# --- CRITICAL FIX: DATA SANITIZATION ---
-# This prevents the Matplotlib unit conversion crash when adding rows
+# Sanitization
 df_clean = df_input.copy()
 df_clean["Label"] = df_clean["Label"].fillna("").astype(str)
 df_clean["Value 1"] = pd.to_numeric(df_clean["Value 1"], errors='coerce').fillna(0)
@@ -204,7 +201,9 @@ for label in ax.get_yticklabels():
 all_data = v1 + (df_clean["Value 2"].tolist() if (st.session_state.show_v2 and "Value 2" in df_clean.columns) else [])
 ax.set_ylim(0 if st.session_state.y_start_zero else min(all_data or [0]) * 0.9, max(all_data or [10]) * 1.25)
 
-ax.spines['top'].set_visible(False); ax.spines['right'].set_visible(False)
+# Thickened Spines behind axes
+ax.spines['top'].set_visible(False)
+ax.spines['right'].set_visible(False)
 ax.spines['left'].set_linewidth(axis_thickness); ax.spines['left'].set_color(txt_col); ax.spines['left'].set_zorder(4)
 ax.spines['bottom'].set_linewidth(axis_thickness); ax.spines['bottom'].set_color(txt_col); ax.spines['bottom'].set_zorder(4)
 
