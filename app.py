@@ -36,7 +36,7 @@ state_defaults = {
     'bar_gap': 0.22, 'y_start_zero': True, 'x_bold': True, 'y_bold': True,
     'show_values': False, 'value_sz': 24, 'value_bold': True,
     'highlight_idx': "None", 'highlight_color': '#FFD700',
-    'line_width': 8, 'marker_size': 12, 'editor_key': 0,
+    'line_width': 8, 'marker_size': 15, 'editor_key': 0,
     'grid_layer': "Above Data"
 }
 for key, val in state_defaults.items():
@@ -68,9 +68,11 @@ with st.sidebar:
     chart_type = st.radio("Chart Type", ["Bar", "Line"], index=0 if st.session_state.chart_type == "Bar" else 1)
     st.session_state.chart_type = chart_type
     
-    grid_choice = st.radio("Grid Layer", ["Below Data", "Above Data"], index=1 if st.session_state.grid_layer == "Above Data" else 0)
-    st.session_state.grid_layer = grid_choice
-
+    if chart_type == "Line":
+        st.session_state.line_width = st.slider("Line Thickness", 1, 25, st.session_state.line_width)
+        st.session_state.marker_size = st.slider("Point Size", 1, 50, st.session_state.marker_size)
+    
+    st.session_state.grid_layer = st.radio("Grid Layer", ["Below Data", "Above Data"], index=1 if st.session_state.grid_layer == "Above Data" else 0)
     st.session_state.show_v2 = st.checkbox("Show Second Series", value=st.session_state.show_v2)
     st.session_state.y_start_zero = st.checkbox("Force Axis to 0", value=st.session_state.y_start_zero)
     
@@ -120,7 +122,11 @@ if not df_input.equals(st.session_state.main_df):
     st.session_state.main_df = df_input
     st.rerun()
 
-# --- 6. MATPLOTLIB ENGINE ---
+# --- 6. PREVIEW CONTRAST CSS ---
+preview_bg = "#262730" if txt_col in ["white", "#022E67"] else "white"
+st.markdown(f"""<style> [data-testid="stImage"] {{ background-color: {preview_bg}; border-radius: 10px; padding: 20px; }} </style>""", unsafe_allow_html=True)
+
+# --- 7. MATPLOTLIB ENGINE ---
 dpi = 100
 fig_w, fig_h = st.session_state.width / dpi, st.session_state.height / dpi
 fig, ax = plt.subplots(figsize=(fig_w, fig_h), dpi=dpi)
@@ -130,10 +136,7 @@ ax.set_facecolor('none')
 labels = df_input["Label"].tolist()
 v1 = df_input["Value 1"].tolist()
 x = range(len(labels))
-
-# Layering: Grid Above or Below Data
 grid_z = 5 if st.session_state.grid_layer == "Above Data" else 1
-data_z = 3
 
 if st.session_state.chart_type == "Bar":
     width_val = 0.8 - st.session_state.bar_gap
@@ -144,53 +147,54 @@ if st.session_state.chart_type == "Bar":
         
     if st.session_state.show_v2 and "Value 2" in df_input.columns:
         v2 = df_input["Value 2"].tolist()
-        r1 = ax.bar([i - width_val/4 for i in x], v1, width=width_val/2, color=st.session_state.last_c1, zorder=data_z)
-        r2 = ax.bar([i + width_val/4 for i in x], v2, width=width_val/2, color=st.session_state.last_c2, zorder=data_z)
+        r1 = ax.bar([i - width_val/4 for i in x], v1, width=width_val/2, color=st.session_state.last_c1, zorder=3)
+        r2 = ax.bar([i + width_val/4 for i in x], v2, width=width_val/2, color=st.session_state.last_c2, zorder=3)
         if st.session_state.show_values:
             ax.bar_label(r1, padding=5, color=txt_col, fontproperties=prop_bold if st.session_state.value_bold else prop_reg, fontsize=st.session_state.value_sz)
             ax.bar_label(r2, padding=5, color=txt_col, fontproperties=prop_bold if st.session_state.value_bold else prop_reg, fontsize=st.session_state.value_sz)
     else:
-        r = ax.bar(x, v1, width=width_val, color=colors, zorder=data_z)
+        r = ax.bar(x, v1, width=width_val, color=colors, zorder=3)
         if st.session_state.show_values:
             ax.bar_label(r, padding=5, color=txt_col, fontproperties=prop_bold if st.session_state.value_bold else prop_reg, fontsize=st.session_state.value_sz)
 else:
-    ax.plot(x, v1, color=st.session_state.last_c1, marker='o', linewidth=st.session_state.line_width, markersize=st.session_state.marker_size, zorder=data_z)
+    # Line Graph Highlight Logic
+    m_colors = [st.session_state.last_c1] * len(v1)
+    if st.session_state.highlight_idx != "None":
+        try: m_colors[int(st.session_state.highlight_idx)] = st.session_state.highlight_color
+        except: pass
+
+    ax.plot(x, v1, color=st.session_state.last_c1, linewidth=st.session_state.line_width, zorder=3)
+    ax.scatter(x, v1, color=m_colors, s=st.session_state.marker_size**2, zorder=4) # Using scatter for individual point coloring
+    
     if st.session_state.show_v2 and "Value 2" in df_input.columns:
         v2 = df_input["Value 2"].tolist()
-        ax.plot(x, v2, color=st.session_state.last_c2, marker='o', linewidth=st.session_state.line_width, markersize=st.session_state.marker_size, zorder=data_z)
+        ax.plot(x, v2, color=st.session_state.last_c2, linewidth=st.session_state.line_width, marker='o', markersize=st.session_state.marker_size, zorder=3)
+    
     if st.session_state.show_values:
         for i, v in enumerate(v1):
-            ax.text(i, v + (max(v1 or [1])*0.02), str(v), color=txt_col, fontproperties=prop_bold if st.session_state.value_bold else prop_reg, fontsize=st.session_state.value_sz, ha='center')
+            ax.text(i, v + (max(v1 or [1])*0.03), str(v), color=txt_col, fontproperties=prop_bold if st.session_state.value_bold else prop_reg, fontsize=st.session_state.value_sz, ha='center')
 
-# Axis Styling
+# Final Styling overrides
 ax.set_xticks(x)
 ax.set_xticklabels(labels, fontproperties=prop_bold if st.session_state.x_bold else prop_reg, fontsize=st.session_state.x_sz, color=txt_col)
-
-# Fix for Y-Axis Label size
 ax.yaxis.set_major_locator(plt.MultipleLocator(st.session_state.y_step))
 ax.tick_params(axis='y', colors=txt_col, labelsize=st.session_state.y_sz)
 for label in ax.get_yticklabels():
     label.set_fontproperties(prop_bold if st.session_state.y_bold else prop_reg)
-    label.set_fontsize(st.session_state.y_sz) # Explicit force
+    label.set_fontsize(st.session_state.y_sz)
 
-# Range Logic
 all_data = v1 + (df_input["Value 2"].tolist() if (st.session_state.show_v2 and "Value 2" in df_input.columns) else [])
-y_max = max(all_data or [10]) * 1.2
-y_min = 0 if st.session_state.y_start_zero else min(all_data or [0]) * 0.9
-ax.set_ylim(y_min, y_max)
-
-# Frame and Grid
+ax.set_ylim(0 if st.session_state.y_start_zero else min(all_data or [0]) * 0.9, max(all_data or [10]) * 1.25)
 ax.spines['top'].set_visible(False); ax.spines['right'].set_visible(False)
 ax.spines['left'].set_color(txt_col); ax.spines['bottom'].set_color(txt_col)
 ax.grid(True, axis='y', color='gray', linestyle='--', alpha=0.3, zorder=grid_z)
 
-# --- 7. EXPORT ---
+# --- 8. EXPORT ---
 buf = io.BytesIO()
 plt.savefig(buf, format="png", transparent=True, bbox_inches='tight', pad_inches=0.1)
 st.image(buf, use_container_width=True)
 
 st.download_button("🚀 DOWNLOAD PNG", data=buf.getvalue(), file_name=f"weather_graphic_{datetime.now().strftime('%H%M%S')}.png", mime="image/png")
 
-# Save Project
 if st.button("💾 SAVE PROJECT SETTINGS"):
-    st.download_button("Confirm Download JSON", data=json.dumps({"data": df_input.to_dict(orient='records'), "settings": {k:v for k,v in st.session_state.items() if k not in ['main_df','editor_key','csv_uploader','json_uploader']}}), file_name="weather_project.json")
+    st.download_button("Confirm JSON Download", data=json.dumps({"data": df_input.to_dict(orient='records'), "settings": {k:v for k,v in st.session_state.items() if k not in ['main_df','editor_key','csv_uploader','json_uploader']}}), file_name="weather_project.json")
