@@ -72,6 +72,8 @@ with st.sidebar:
         st.session_state.line_width = st.slider("Line Thickness", 1, 25, st.session_state.line_width)
         st.session_state.marker_size = st.slider("Point Size", 1, 50, st.session_state.marker_size)
         st.session_state.marker_symbol = st.selectbox("Marker Style", ["Circle", "Square", "Triangle", "Diamond"], index=["Circle", "Square", "Triangle", "Diamond"].index(st.session_state.marker_symbol))
+    else:
+        st.session_state.bar_gap = st.slider("Bar Spacing / Gap", 0.0, 0.9, value=st.session_state.bar_gap)
     
     st.session_state.grid_layer = st.radio("Grid Layer", ["Below Data", "Above Data"], index=1 if st.session_state.grid_layer == "Above Data" else 0)
     st.session_state.show_v2 = st.checkbox("Show Second Series", value=st.session_state.show_v2)
@@ -144,6 +146,7 @@ m_sym = symbol_map.get(st.session_state.marker_symbol, "o")
 val_font = prop_bold if st.session_state.value_bold else prop_reg
 
 if st.session_state.chart_type == "Bar":
+    # Bar Spacing Restoration
     width_val = 0.8 - st.session_state.bar_gap
     colors = [st.session_state.last_c1] * len(v1)
     if st.session_state.highlight_idx != "None":
@@ -155,7 +158,6 @@ if st.session_state.chart_type == "Bar":
         r1 = ax.bar([i - width_val/4 for i in x], v1, width=width_val/2, color=st.session_state.last_c1, zorder=3)
         r2 = ax.bar([i + width_val/4 for i in x], v2, width=width_val/2, color=st.session_state.last_c2, zorder=3)
         if st.session_state.show_values:
-            # Bar label formatting handles integers naturally
             ax.bar_label(r1, padding=5, color=txt_col, fontproperties=val_font, fontsize=st.session_state.value_sz, fmt='%g')
             ax.bar_label(r2, padding=5, color=txt_col, fontproperties=val_font, fontsize=st.session_state.value_sz, fmt='%g')
     else:
@@ -176,13 +178,11 @@ else:
         ax.plot(x, v2, color=st.session_state.last_c2, linewidth=st.session_state.line_width, marker=m_sym, markersize=st.session_state.marker_size, zorder=3)
     
     if st.session_state.show_values:
-        # CLEAN INTEGER LOGIC FOR LINE GRAPHS
         for i, v in enumerate(v1):
-            # The %g formatter strips trailing zeros/decimals
             clean_val = f"{v:g}" 
             ax.text(i, v + (max(v1 or [1])*0.03), clean_val, color=txt_col, fontproperties=val_font, fontsize=st.session_state.value_sz, ha='center')
 
-# Final Styling
+# Axis Setup
 ax.set_xticks(x)
 ax.set_xticklabels(labels, fontproperties=prop_bold if st.session_state.x_bold else prop_reg, fontsize=st.session_state.x_sz, color=txt_col)
 ax.yaxis.set_major_locator(plt.MultipleLocator(st.session_state.y_step))
