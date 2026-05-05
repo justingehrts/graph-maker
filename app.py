@@ -139,10 +139,7 @@ ax.set_facecolor('none')
 labels = df_input["Label"].tolist()
 v1 = df_input["Value 1"].tolist()
 x = range(len(labels))
-
-# Layering: Grid Above (z=5) or Below (z=1) Data (z=3)
 grid_z = 5 if st.session_state.grid_layer == "Above Data" else 1
-data_z = 3
 
 symbol_map = {"Circle": "o", "Square": "s", "Triangle": "^", "Diamond": "D"}
 m_sym = symbol_map.get(st.session_state.marker_symbol, "o")
@@ -157,13 +154,13 @@ if st.session_state.chart_type == "Bar":
         
     if st.session_state.show_v2 and "Value 2" in df_input.columns:
         v2 = df_input["Value 2"].tolist()
-        r1 = ax.bar([i - width_val/4 for i in x], v1, width=width_val/2, color=st.session_state.last_c1, zorder=data_z)
-        r2 = ax.bar([i + width_val/4 for i in x], v2, width=width_val/2, color=st.session_state.last_c2, zorder=data_z)
+        r1 = ax.bar([i - width_val/4 for i in x], v1, width=width_val/2, color=st.session_state.last_c1, zorder=3)
+        r2 = ax.bar([i + width_val/4 for i in x], v2, width=width_val/2, color=st.session_state.last_c2, zorder=3)
         if st.session_state.show_values:
             ax.bar_label(r1, padding=5, color=txt_col, fontproperties=val_font, fontsize=st.session_state.value_sz, fmt='%g')
             ax.bar_label(r2, padding=5, color=txt_col, fontproperties=val_font, fontsize=st.session_state.value_sz, fmt='%g')
     else:
-        r = ax.bar(x, v1, width=width_val, color=colors, zorder=data_z)
+        r = ax.bar(x, v1, width=width_val, color=colors, zorder=3)
         if st.session_state.show_values:
             ax.bar_label(r, padding=5, color=txt_col, fontproperties=val_font, fontsize=st.session_state.value_sz, fmt='%g')
 else:
@@ -172,33 +169,43 @@ else:
         try: m_colors[int(st.session_state.highlight_idx)] = st.session_state.highlight_color
         except: pass
 
-    ax.plot(x, v1, color=st.session_state.last_c1, linewidth=st.session_state.line_width, zorder=data_z)
-    ax.scatter(x, v1, color=m_colors, s=st.session_state.marker_size**2, marker=m_sym, zorder=data_z + 1)
+    ax.plot(x, v1, color=st.session_state.last_c1, linewidth=st.session_state.line_width, zorder=3)
+    ax.scatter(x, v1, color=m_colors, s=st.session_state.marker_size**2, marker=m_sym, zorder=4)
     
     if st.session_state.show_v2 and "Value 2" in df_input.columns:
         v2 = df_input["Value 2"].tolist()
-        ax.plot(x, v2, color=st.session_state.last_c2, linewidth=st.session_state.line_width, marker=m_sym, markersize=st.session_state.marker_size, zorder=data_z)
+        ax.plot(x, v2, color=st.session_state.last_c2, linewidth=st.session_state.line_width, marker=m_sym, markersize=st.session_state.marker_size, zorder=3)
     
     if st.session_state.show_values:
         for i, v in enumerate(v1):
             clean_val = f"{v:g}" 
-            ax.text(i, v + (max(v1 or [1])*0.03), clean_val, color=txt_col, fontproperties=val_font, fontsize=st.session_state.value_sz, ha='center', zorder=data_z + 2)
+            ax.text(i, v + (max(v1 or [1])*0.03), clean_val, color=txt_col, fontproperties=val_font, fontsize=st.session_state.value_sz, ha='center', zorder=5)
 
-# Axis & Grid
+# Axis & Tick Overrides for Thickness
 ax.set_xticks(x)
 ax.set_xticklabels(labels, fontproperties=prop_bold if st.session_state.x_bold else prop_reg, fontsize=st.session_state.x_sz, color=txt_col)
 ax.yaxis.set_major_locator(plt.MultipleLocator(st.session_state.y_step))
-ax.tick_params(axis='y', colors=txt_col, labelsize=st.session_state.y_sz)
+
+# THICKNESS SETTINGS
+axis_thickness = 4.0 # Thick frame lines
+tick_thickness = 3.0 # Thick tick marks
+
+ax.tick_params(axis='both', colors=txt_col, labelsize=st.session_state.y_sz, width=tick_thickness, length=8)
 for label in ax.get_yticklabels():
     label.set_fontproperties(prop_bold if st.session_state.y_bold else prop_reg)
     label.set_fontsize(st.session_state.y_sz)
 
 all_data = v1 + (df_input["Value 2"].tolist() if (st.session_state.show_v2 and "Value 2" in df_input.columns) else [])
 ax.set_ylim(0 if st.session_state.y_start_zero else min(all_data or [0]) * 0.9, max(all_data or [10]) * 1.25)
-ax.spines['top'].set_visible(False); ax.spines['right'].set_visible(False)
-ax.spines['left'].set_color(txt_col); ax.spines['bottom'].set_color(txt_col)
 
-# Solid Grid Line Restoration
+# Thickening the Spine Lines
+ax.spines['top'].set_visible(False)
+ax.spines['right'].set_visible(False)
+ax.spines['left'].set_linewidth(axis_thickness)
+ax.spines['left'].set_color(txt_col)
+ax.spines['bottom'].set_linewidth(axis_thickness)
+ax.spines['bottom'].set_color(txt_col)
+
 ax.grid(True, axis='y', color='gray', linestyle='-', alpha=0.3, zorder=grid_z)
 
 # --- 8. EXPORT ---
