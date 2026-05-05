@@ -65,7 +65,7 @@ with st.sidebar:
     w = st.number_input("Width (px)", value=st.session_state.width); st.session_state.width = w
     h = st.number_input("Height (px)", value=st.session_state.height); st.session_state.height = h
     
-    chart_type = st.radio("Chart Type", ["Bar", "Line"], index=0 if st.session_state.chart_type == "Bar" else 1)
+    chart_type = st.radio("Chart Type", ["Bar", "Line"], index=0 if st.session_type == "Bar" else 1)
     st.session_state.chart_type = chart_type
     
     if chart_type == "Line":
@@ -107,7 +107,6 @@ with st.sidebar:
     st.session_state.last_c1 = st.color_picker("S1 Picker", value=st.session_state.last_c1)
     st.session_state.last_c2 = st.color_picker("S2 Color", value=st.session_state.last_c2)
     
-    # Mechanical "OK" button to force a rerun
     if st.button("🔄 APPLY SETTINGS"):
         st.rerun()
 
@@ -149,6 +148,7 @@ symbol_map = {"Circle": "o", "Square": "s", "Triangle": "^", "Diamond": "D"}
 m_sym = symbol_map.get(st.session_state.marker_symbol, "o")
 val_font = prop_bold if st.session_state.value_bold else prop_reg
 
+# Draw Data
 if st.session_state.chart_type == "Bar":
     width_val = 0.8 - st.session_state.bar_gap
     colors = [st.session_state.last_c1] * len(v1)
@@ -185,15 +185,12 @@ else:
             clean_val = f"{v:g}" 
             ax.text(i, v + (max(v1 or [1])*0.03), clean_val, color=txt_col, fontproperties=val_font, fontsize=st.session_state.value_sz, ha='center', zorder=5)
 
-# Axis Styling
+# Axis / Grid
 ax.set_xticks(x)
 ax.set_xticklabels(labels, fontproperties=prop_bold if st.session_state.x_bold else prop_reg, fontsize=st.session_state.x_sz, color=txt_col)
 ax.yaxis.set_major_locator(plt.MultipleLocator(st.session_state.y_step))
 
-axis_thickness = 4.0
-tick_thickness = 3.0
-
-ax.tick_params(axis='both', colors=txt_col, labelsize=st.session_state.y_sz, width=tick_thickness, length=8, zorder=4)
+ax.tick_params(axis='both', colors=txt_col, labelsize=st.session_state.y_sz, width=3, length=8, zorder=4)
 for label in ax.get_yticklabels():
     label.set_fontproperties(prop_bold if st.session_state.y_bold else prop_reg)
     label.set_fontsize(st.session_state.y_sz)
@@ -201,18 +198,18 @@ for label in ax.get_yticklabels():
 all_data = v1 + (df_clean["Value 2"].tolist() if (st.session_state.show_v2 and "Value 2" in df_clean.columns) else [])
 ax.set_ylim(0 if st.session_state.y_start_zero else min(all_data or [0]) * 0.9, max(all_data or [10]) * 1.25)
 
-# Thickened Spines behind axes
-ax.spines['top'].set_visible(False)
-ax.spines['right'].set_visible(False)
-ax.spines['left'].set_linewidth(axis_thickness); ax.spines['left'].set_color(txt_col); ax.spines['left'].set_zorder(4)
-ax.spines['bottom'].set_linewidth(axis_thickness); ax.spines['bottom'].set_color(txt_col); ax.spines['bottom'].set_zorder(4)
-
+ax.spines['top'].set_visible(False); ax.spines['right'].set_visible(False)
+ax.spines['left'].set_linewidth(4); ax.spines['left'].set_color(txt_col); ax.spines['left'].set_zorder(4)
+ax.spines['bottom'].set_linewidth(4); ax.spines['bottom'].set_color(txt_col); ax.spines['bottom'].set_zorder(4)
 ax.grid(True, axis='y', color='gray', linestyle='-', alpha=0.3, zorder=1)
 
 # --- 8. EXPORT ---
 buf = io.BytesIO()
 plt.savefig(buf, format="png", transparent=True, bbox_inches='tight', pad_inches=0.1)
 st.image(buf, use_container_width=True)
+
+# Important: Close the figure to clear memory and prevent broken images on rerun
+plt.close(fig)
 
 st.download_button("🚀 DOWNLOAD PNG", data=buf.getvalue(), file_name=f"weather_graphic_{datetime.now().strftime('%H%M%S')}.png", mime="image/png")
 
