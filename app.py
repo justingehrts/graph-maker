@@ -36,8 +36,8 @@ state_defaults = {
     'bar_gap': 0.22, 'y_start_zero': True, 'x_bold': True, 'y_bold': True,
     'show_values': False, 'value_sz': 24, 'value_bold': True,
     'highlight_idx': "None", 'highlight_color': '#FFD700',
-    'line_width': 8, 'marker_size': 15, 'editor_key': 0,
-    'grid_layer': "Above Data"
+    'line_width': 8, 'marker_size': 15, 'marker_symbol': 'Circle',
+    'editor_key': 0, 'grid_layer': "Above Data"
 }
 for key, val in state_defaults.items():
     if key not in st.session_state: st.session_state[key] = val
@@ -71,6 +71,7 @@ with st.sidebar:
     if chart_type == "Line":
         st.session_state.line_width = st.slider("Line Thickness", 1, 25, st.session_state.line_width)
         st.session_state.marker_size = st.slider("Point Size", 1, 50, st.session_state.marker_size)
+        st.session_state.marker_symbol = st.selectbox("Marker Style", ["Circle", "Square", "Triangle", "Diamond"], index=["Circle", "Square", "Triangle", "Diamond"].index(st.session_state.marker_symbol))
     
     st.session_state.grid_layer = st.radio("Grid Layer", ["Below Data", "Above Data"], index=1 if st.session_state.grid_layer == "Above Data" else 0)
     st.session_state.show_v2 = st.checkbox("Show Second Series", value=st.session_state.show_v2)
@@ -98,7 +99,7 @@ with st.sidebar:
     
     st.divider()
     color_map = {"White": "white", "Black": "black", "Navy": "#022E67"}
-    st.session_state.text_choice = st.selectbox("Text Color", list(color_map.keys()), index=list(color_map.keys()).index(st.session_state.text_choice))
+    st.session_state.text_choice = st.selectbox("Text Color Preset", list(color_map.keys()), index=list(color_map.keys()).index(st.session_state.text_choice))
     txt_col = color_map[st.session_state.text_choice]
 
     st.write("**Data Colors**")
@@ -123,7 +124,8 @@ if not df_input.equals(st.session_state.main_df):
     st.rerun()
 
 # --- 6. PREVIEW CONTRAST CSS ---
-preview_bg = "#262730" if txt_col in ["white", "#022E67"] else "white"
+# Only switch to dark background if text is explicitly White
+preview_bg = "#262730" if txt_col == "white" else "white"
 st.markdown(f"""<style> [data-testid="stImage"] {{ background-color: {preview_bg}; border-radius: 10px; padding: 20px; }} </style>""", unsafe_allow_html=True)
 
 # --- 7. MATPLOTLIB ENGINE ---
@@ -137,6 +139,10 @@ labels = df_input["Label"].tolist()
 v1 = df_input["Value 1"].tolist()
 x = range(len(labels))
 grid_z = 5 if st.session_state.grid_layer == "Above Data" else 1
+
+# Marker Symbol Mapping
+symbol_map = {"Circle": "o", "Square": "s", "Triangle": "^", "Diamond": "D"}
+m_sym = symbol_map.get(st.session_state.marker_symbol, "o")
 
 if st.session_state.chart_type == "Bar":
     width_val = 0.8 - st.session_state.bar_gap
@@ -164,11 +170,11 @@ else:
         except: pass
 
     ax.plot(x, v1, color=st.session_state.last_c1, linewidth=st.session_state.line_width, zorder=3)
-    ax.scatter(x, v1, color=m_colors, s=st.session_state.marker_size**2, zorder=4) # Using scatter for individual point coloring
+    ax.scatter(x, v1, color=m_colors, s=st.session_state.marker_size**2, marker=m_sym, zorder=4)
     
     if st.session_state.show_v2 and "Value 2" in df_input.columns:
         v2 = df_input["Value 2"].tolist()
-        ax.plot(x, v2, color=st.session_state.last_c2, linewidth=st.session_state.line_width, marker='o', markersize=st.session_state.marker_size, zorder=3)
+        ax.plot(x, v2, color=st.session_state.last_c2, linewidth=st.session_state.line_width, marker=m_sym, markersize=st.session_state.marker_size, zorder=3)
     
     if st.session_state.show_values:
         for i, v in enumerate(v1):
