@@ -25,8 +25,8 @@ st.set_page_config(page_title="Weather Graphic Pro", layout="wide")
 if 'main_df' not in st.session_state:
     st.session_state.main_df = pd.DataFrame({
         "Label": ["Mon", "Tue", "Wed", "Thu", "Fri"], 
-        "Value 1": [75.0, 80.0, 50.0, 60.0, 75.0],
-        "Value 2": [65.0, 70.0, 10.0, 52.0, 37.0]
+        "Value 1": [75, 80, 50, 60, 75], 
+        "Value 2": [65, 70, 10, 52, 37]
     })
 
 state_defaults = {
@@ -124,7 +124,6 @@ if not df_input.equals(st.session_state.main_df):
     st.rerun()
 
 # --- 6. PREVIEW CONTRAST CSS ---
-# Only switch to dark background if text is explicitly White
 preview_bg = "#262730" if txt_col == "white" else "white"
 st.markdown(f"""<style> [data-testid="stImage"] {{ background-color: {preview_bg}; border-radius: 10px; padding: 20px; }} </style>""", unsafe_allow_html=True)
 
@@ -140,9 +139,9 @@ v1 = df_input["Value 1"].tolist()
 x = range(len(labels))
 grid_z = 5 if st.session_state.grid_layer == "Above Data" else 1
 
-# Marker Symbol Mapping
 symbol_map = {"Circle": "o", "Square": "s", "Triangle": "^", "Diamond": "D"}
 m_sym = symbol_map.get(st.session_state.marker_symbol, "o")
+val_font = prop_bold if st.session_state.value_bold else prop_reg
 
 if st.session_state.chart_type == "Bar":
     width_val = 0.8 - st.session_state.bar_gap
@@ -156,14 +155,14 @@ if st.session_state.chart_type == "Bar":
         r1 = ax.bar([i - width_val/4 for i in x], v1, width=width_val/2, color=st.session_state.last_c1, zorder=3)
         r2 = ax.bar([i + width_val/4 for i in x], v2, width=width_val/2, color=st.session_state.last_c2, zorder=3)
         if st.session_state.show_values:
-            ax.bar_label(r1, padding=5, color=txt_col, fontproperties=prop_bold if st.session_state.value_bold else prop_reg, fontsize=st.session_state.value_sz)
-            ax.bar_label(r2, padding=5, color=txt_col, fontproperties=prop_bold if st.session_state.value_bold else prop_reg, fontsize=st.session_state.value_sz)
+            # Bar label formatting handles integers naturally
+            ax.bar_label(r1, padding=5, color=txt_col, fontproperties=val_font, fontsize=st.session_state.value_sz, fmt='%g')
+            ax.bar_label(r2, padding=5, color=txt_col, fontproperties=val_font, fontsize=st.session_state.value_sz, fmt='%g')
     else:
         r = ax.bar(x, v1, width=width_val, color=colors, zorder=3)
         if st.session_state.show_values:
-            ax.bar_label(r, padding=5, color=txt_col, fontproperties=prop_bold if st.session_state.value_bold else prop_reg, fontsize=st.session_state.value_sz)
+            ax.bar_label(r, padding=5, color=txt_col, fontproperties=val_font, fontsize=st.session_state.value_sz, fmt='%g')
 else:
-    # Line Graph Highlight Logic
     m_colors = [st.session_state.last_c1] * len(v1)
     if st.session_state.highlight_idx != "None":
         try: m_colors[int(st.session_state.highlight_idx)] = st.session_state.highlight_color
@@ -177,10 +176,13 @@ else:
         ax.plot(x, v2, color=st.session_state.last_c2, linewidth=st.session_state.line_width, marker=m_sym, markersize=st.session_state.marker_size, zorder=3)
     
     if st.session_state.show_values:
+        # CLEAN INTEGER LOGIC FOR LINE GRAPHS
         for i, v in enumerate(v1):
-            ax.text(i, v + (max(v1 or [1])*0.03), str(v), color=txt_col, fontproperties=prop_bold if st.session_state.value_bold else prop_reg, fontsize=st.session_state.value_sz, ha='center')
+            # The %g formatter strips trailing zeros/decimals
+            clean_val = f"{v:g}" 
+            ax.text(i, v + (max(v1 or [1])*0.03), clean_val, color=txt_col, fontproperties=val_font, fontsize=st.session_state.value_sz, ha='center')
 
-# Final Styling overrides
+# Final Styling
 ax.set_xticks(x)
 ax.set_xticklabels(labels, fontproperties=prop_bold if st.session_state.x_bold else prop_reg, fontsize=st.session_state.x_sz, color=txt_col)
 ax.yaxis.set_major_locator(plt.MultipleLocator(st.session_state.y_step))
