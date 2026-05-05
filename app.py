@@ -65,7 +65,6 @@ with st.sidebar:
     w = st.number_input("Width (px)", value=st.session_state.width); st.session_state.width = w
     h = st.number_input("Height (px)", value=st.session_state.height); st.session_state.height = h
     
-    # FIXED TYPO HERE: st.session_state.chart_type
     chart_type = st.radio("Chart Type", ["Bar", "Line"], index=0 if st.session_state.chart_type == "Bar" else 1)
     st.session_state.chart_type = chart_type
     
@@ -117,10 +116,9 @@ c1, c2 = st.columns(2)
 with c1: st.file_uploader("📂 Import CSV/Excel", type=['csv','xlsx'], key="csv_uploader", on_change=handle_upload)
 with c2: st.file_uploader("💾 Load Project", type=['json'], key="json_uploader", on_change=handle_json)
 
-# hide_index=False ensures row numbers are visible
 df_input = st.data_editor(st.session_state.main_df, num_rows="dynamic", use_container_width=True, key=f"editor_{st.session_state.editor_key}", hide_index=False)
 
-# Sanitization
+# Sanitization for editing
 df_clean = df_input.copy()
 df_clean["Label"] = df_clean["Label"].fillna("").astype(str)
 df_clean["Value 1"] = pd.to_numeric(df_clean["Value 1"], errors='coerce').fillna(0)
@@ -150,7 +148,7 @@ symbol_map = {"Circle": "o", "Square": "s", "Triangle": "^", "Diamond": "D"}
 m_sym = symbol_map.get(st.session_state.marker_symbol, "o")
 val_font = prop_bold if st.session_state.value_bold else prop_reg
 
-# Draw Data (zorder 2 sits behind the spines at zorder 4)
+# Plotting Data
 if st.session_state.chart_type == "Bar":
     width_val = 0.8 - st.session_state.bar_gap
     colors = [st.session_state.last_c1] * len(v1)
@@ -187,7 +185,7 @@ else:
             clean_val = f"{v:g}" 
             ax.text(i, v + (max(v1 or [1])*0.03), clean_val, color=txt_col, fontproperties=val_font, fontsize=st.session_state.value_sz, ha='center', zorder=5)
 
-# Axis & Ticks (Thick broadcast style)
+# Styling Overrides
 ax.set_xticks(x)
 ax.set_xticklabels(labels, fontproperties=prop_bold if st.session_state.x_bold else prop_reg, fontsize=st.session_state.x_sz, color=txt_col)
 ax.yaxis.set_major_locator(plt.MultipleLocator(st.session_state.y_step))
@@ -200,5 +198,25 @@ for label in ax.get_yticklabels():
 all_data = v1 + (df_clean["Value 2"].tolist() if (st.session_state.show_v2 and "Value 2" in df_clean.columns) else [])
 ax.set_ylim(0 if st.session_state.y_start_zero else min(all_data or [0]) * 0.9, max(all_data or [10]) * 1.25)
 
+# Clean Spine Logic (zorder=4 ensures they sit in front of bars)
 ax.spines['top'].set_visible(False)
-ax.spines['right'].set
+ax.spines['right'].set_visible(False)
+ax.spines['left'].set_linewidth(4)
+ax.spines['left'].set_color(txt_col)
+ax.spines['left'].set_zorder(4)
+ax.spines['bottom'].set_linewidth(4)
+ax.spines['bottom'].set_color(txt_col)
+ax.spines['bottom'].set_zorder(4)
+
+ax.grid(True, axis='y', color='gray', linestyle='-', alpha=0.3, zorder=1)
+
+# --- 8. EXPORT ---
+buf = io.BytesIO()
+plt.savefig(buf, format="png", transparent=True, bbox_inches='tight', pad_inches=0.1)
+st.image(buf, use_container_width=True)
+plt.close(fig)
+
+st.download_button("🚀 DOWNLOAD PNG", data=buf.getvalue(), file_name=f"weather_graphic_{datetime.now().strftime('%H%M%S')}.png", mime="image/png")
+
+if st.button("💾 SAVE PROJECT SETTINGS"):
+    st.download_button("Confirm JSON Download", data=json.dumps({"data": df_input.to_dict(orient='records'), "settings": {k:v for k,v in st.session_state.items() if k not in ['main_df','editor_key','csv_uploader','json_uploader']}}), file_name="weather_project.json")
