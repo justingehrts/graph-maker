@@ -4,19 +4,19 @@ import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
 import io
 from datetime import datetime
-import json
 
 # --- 1. FONT LOADING ---
-# We use the same Proxima Nova files you've been using
 path_reg = "ProximaNova-Regular.ttf"
 path_bold = "ProximaNova-Bold.ttf"
 
-try:
-    prop_reg = fm.FontProperties(fname=path_reg)
-    prop_bold = fm.FontProperties(fname=path_bold)
-except:
-    prop_reg = fm.FontProperties(family='sans-serif')
-    prop_bold = fm.FontProperties(family='sans-serif', weight='bold')
+@st.cache_data
+def load_fonts(reg_path, bold_path):
+    try:
+        return fm.FontProperties(fname=reg_path), fm.FontProperties(fname=bold_path)
+    except:
+        return fm.FontProperties(family='sans-serif'), fm.FontProperties(family='sans-serif', weight='bold')
+
+prop_reg, prop_bold = load_fonts(path_reg, path_bold)
 
 st.set_page_config(page_title="Weather Graphic Pro", layout="wide")
 
@@ -69,12 +69,12 @@ st.subheader("Data Input")
 df_input = st.data_editor(st.session_state.main_df, num_rows="dynamic", use_container_width=True)
 
 # --- 5. MATPLOTLIB DRAWING ENGINE ---
-# Convert pixels to inches for Matplotlib (assuming 100 DPI)
 dpi = 100
 fig_w, fig_h = st.session_state.width / dpi, st.session_state.height / dpi
 
+# Create figure with the requested pixel dimensions
 fig, ax = plt.subplots(figsize=(fig_w, fig_h), dpi=dpi)
-fig.patch.set_alpha(0) # Transparent background
+fig.patch.set_alpha(0) 
 ax.set_facecolor('none')
 
 labels = df_input["Label"].tolist()
@@ -84,36 +84,38 @@ width_val = 0.8 - st.session_state.bar_gap
 
 if st.session_state.show_v2:
     v2 = df_input["Value 2"].tolist()
-    ax.bar([i - width_val/4 for i in x], v1, width=width_val/2, color=st.session_state.last_c1, label="S1")
-    ax.bar([i + width_val/4 for i in x], v2, width=width_val/2, color=st.session_state.last_c2, label="S2")
+    ax.bar([i - width_val/4 for i in x], v1, width=width_val/2, color=st.session_state.last_c1)
+    ax.bar([i + width_val/4 for i in x], v2, width=width_val/2, color=st.session_state.last_c2)
 else:
     ax.bar(x, v1, width=width_val, color=st.session_state.last_c1)
 
-# Axis Styling
+# Axis Styling - Forced to follow Width/Height
 ax.set_xticks(x)
 ax.set_xticklabels(labels, fontproperties=prop_bold if st.session_state.x_bold else prop_reg, fontsize=st.session_state.x_sz, color=txt_col)
 
-# Y-Axis Scaling
+# Y Scaling logic
 all_data = v1 + (df_input["Value 2"].tolist() if st.session_state.show_v2 else [])
 y_max = max(all_data) * 1.15
 y_min = 0 if st.session_state.y_start_zero else min(all_data) * 0.85
 ax.set_ylim(y_min, y_max)
 
-# Grid and Ticks
 ax.yaxis.set_major_locator(plt.MultipleLocator(st.session_state.y_step))
 ax.tick_params(axis='y', colors=txt_col, labelsize=st.session_state.y_sz)
+
+# Set tick font properties individually
 for label in ax.get_yticklabels():
     label.set_fontproperties(prop_bold if st.session_state.y_bold else prop_reg)
 
-ax.grid(True, axis='y', color='gray', linestyle='--', alpha=0.3)
+# Frame Styling
 ax.spines['top'].set_visible(False)
 ax.spines['right'].set_visible(False)
 ax.spines['left'].set_color(txt_col)
 ax.spines['bottom'].set_color(txt_col)
+ax.grid(True, axis='y', color='gray', linestyle='--', alpha=0.3)
 
 # --- 6. RENDER AND DOWNLOAD ---
 buf = io.BytesIO()
-plt.savefig(buf, format="png", transparent=True, bbox_inches='tight', pad_inches=0.5)
+plt.savefig(buf, format="png", transparent=True)
 st.image(buf, use_container_width=True)
 
 st.download_button(
