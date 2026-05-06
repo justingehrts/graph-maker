@@ -19,7 +19,7 @@ def load_fonts(reg_path, bold_path):
 
 prop_reg, prop_bold = load_fonts(path_reg, path_bold)
 
-st.set_page_config(page_title="Weather Graphic Pro", layout="wide")
+st.set_page_config(page_title="Max Graph Maker", layout="wide")
 
 # --- 2. SESSION STATE ---
 if 'main_df' not in st.session_state:
