@@ -37,7 +37,7 @@ state_defaults = {
     'show_values': False, 'value_sz': 24, 'value_bold': True,
     'highlight_idx': "None", 'highlight_color': '#FFD700',
     'line_width': 8, 'marker_size': 15, 'marker_symbol': 'Circle',
-    'editor_key': 0
+    'editor_key': 0, 'x_rot': 0
 }
 for key, val in state_defaults.items():
     if key not in st.session_state: st.session_state[key] = val
@@ -48,7 +48,6 @@ def handle_upload():
     if f:
         df = pd.read_csv(f) if f.name.endswith('.csv') else pd.read_excel(f)
         df.columns = ["Label", "Value 1"] + list(df.columns[2:])
-        # FORCE LABELS TO STRINGS IMMEDIATELY TO KILL TIME STAMPS
         df["Label"] = df["Label"].astype(str).str.replace(r' 00:00:00$', '', regex=True)
         st.session_state.main_df = df.reset_index(drop=True)
         st.session_state.editor_key += 1
@@ -82,6 +81,10 @@ with st.sidebar:
     st.session_state.show_v2 = st.checkbox("Show Second Series", value=st.session_state.show_v2)
     st.session_state.y_start_zero = st.checkbox("Force Axis to 0", value=st.session_state.y_start_zero)
     
+    st.divider()
+    st.write("**X-Axis Rotation**")
+    st.session_state.x_rot = st.slider("Rotation (Degrees)", 0, 90, st.session_state.x_rot)
+
     st.divider()
     st.write("**Highlight Point**")
     h_opts = ["None"] + list(range(len(st.session_state.main_df)))
@@ -120,17 +123,9 @@ c1, c2 = st.columns(2)
 with c1: st.file_uploader("📂 Import CSV/Excel", type=['csv','xlsx'], key="csv_uploader", on_change=handle_upload)
 with c2: st.file_uploader("💾 Load Project", type=['json'], key="json_uploader", on_change=handle_json)
 
-# FORCE LABEL TO BE TREATED AS TEXT COLUMN
-df_input = st.data_editor(
-    st.session_state.main_df, 
-    num_rows="dynamic", 
-    use_container_width=True, 
-    key=f"editor_{st.session_state.editor_key}", 
-    hide_index=False,
-    column_config={"Label": st.column_config.TextColumn("Label")} 
-)
+df_input = st.data_editor(st.session_state.main_df, num_rows="dynamic", use_container_width=True, key=f"editor_{st.session_state.editor_key}", hide_index=False, column_config={"Label": st.column_config.TextColumn("Label")})
 
-# Sanitization - specifically stripping time stamps from the strings
+# Sanitization
 df_clean = df_input.copy()
 df_clean["Label"] = df_clean["Label"].fillna("").astype(str).str.replace(r' 00:00:00$', '', regex=True)
 df_clean["Value 1"] = pd.to_numeric(df_clean["Value 1"], errors='coerce').fillna(0)
@@ -183,27 +178,33 @@ else:
     if st.session_state.highlight_idx != "None":
         try: m_colors[int(st.session_state.highlight_idx)] = st.session_state.highlight_color
         except: pass
-
     ax.plot(x, v1, color=st.session_state.last_c1, linewidth=st.session_state.line_width, zorder=2)
     ax.scatter(x, v1, color=m_colors, s=st.session_state.marker_size**2, marker=m_sym, zorder=3)
-    
     if st.session_state.show_v2 and "Value 2" in df_clean.columns:
         v2 = df_clean["Value 2"].tolist()
         ax.plot(x, v2, color=st.session_state.last_c2, linewidth=st.session_state.line_width, marker=m_sym, markersize=st.session_state.marker_size, zorder=2)
-    
     if st.session_state.show_values:
         for i, v in enumerate(v1):
             clean_val = f"{v:g}" 
             ax.text(i, v + (max(v1 or [1])*0.03), clean_val, color=txt_col, fontproperties=val_font, fontsize=st.session_state.value_sz, ha='center', zorder=5)
 
+# --- 8. AXIS LOCKDOWN ---
+# X-Axis Styling
 ax.set_xticks(x)
-ax.set_xticklabels(labels, fontproperties=prop_bold if st.session_state.x_bold else prop_reg, fontsize=st.session_state.x_sz, color=txt_col)
-ax.yaxis.set_major_locator(plt.MultipleLocator(st.session_state.y_step))
-ax.tick_params(axis='both', colors=txt_col, labelsize=st.session_state.y_sz, width=3, length=8, zorder=4)
+ax.set_xticklabels(labels, fontproperties=prop_bold if st.session_state.x_bold else prop_reg, fontsize=st.session_state.x_sz, color=txt_col, rotation=st.session_state.x_rot)
+ax.tick_params(axis='x', colors=txt_col, width=3, length=8, zorder=4)
 
-for label in ax.get_yticklabels():
-    label.set_fontproperties(prop_bold if st.session_state.y_bold else prop_reg)
-    label.set_fontsize(st.session_state.y_sz)
+# Y-Axis Styling
+ax.yaxis.set_major_locator(plt.MultipleLocator(st.session_state.y_step))
+ax.tick_params(axis='y', colors=txt_col, width=3, length=8, zorder=4)
+
+# Explicitly loop to ensure no cross-talk on font sizes
+for tick in ax.get_yticklabels():
+    tick.set_fontproperties(prop_bold if st.session_state.y_bold else prop_reg)
+    tick.set_fontsize(st.session_state.y_sz)
+for tick in ax.get_xticklabels():
+    tick.set_fontproperties(prop_bold if st.session_state.x_bold else prop_reg)
+    tick.set_fontsize(st.session_state.x_sz)
 
 all_data = v1 + (df_clean["Value 2"].tolist() if (st.session_state.show_v2 and "Value 2" in df_clean.columns) else [])
 ax.set_ylim(0 if st.session_state.y_start_zero else min(all_data or [0]) * 0.9, max(all_data or [10]) * 1.25)
@@ -214,7 +215,7 @@ ax.spines['left'].set_linewidth(4); ax.spines['left'].set_color(txt_col); ax.spi
 ax.spines['bottom'].set_linewidth(4); ax.spines['bottom'].set_color(txt_col); ax.spines['bottom'].set_zorder(4)
 ax.grid(True, axis='y', color='gray', linestyle='-', alpha=0.3, zorder=1)
 
-# --- 8. EXPORT ---
+# --- 9. EXPORT ---
 buf = io.BytesIO()
 plt.savefig(buf, format="png", transparent=True, bbox_inches='tight', pad_inches=0.1)
 st.image(buf, use_container_width=True)
