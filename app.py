@@ -19,7 +19,7 @@ def load_fonts(reg_path, bold_path):
 
 prop_reg, prop_bold = load_fonts(path_reg, path_bold)
 
-st.set_page_config(page_title="Max Graph Maker", layout="wide")
+st.set_page_config(page_title="Weather Graphic Pro", layout="wide")
 
 # --- 2. SESSION STATE ---
 if 'main_df' not in st.session_state:
@@ -48,6 +48,8 @@ def handle_upload():
     if f:
         df = pd.read_csv(f) if f.name.endswith('.csv') else pd.read_excel(f)
         df.columns = ["Label", "Value 1"] + list(df.columns[2:])
+        # FORCE LABELS TO STRINGS IMMEDIATELY TO KILL TIME STAMPS
+        df["Label"] = df["Label"].astype(str).str.replace(r' 00:00:00$', '', regex=True)
         st.session_state.main_df = df.reset_index(drop=True)
         st.session_state.editor_key += 1
 
@@ -55,7 +57,9 @@ def handle_json():
     f = st.session_state.json_uploader
     if f:
         p = json.load(f)
-        st.session_state.main_df = pd.DataFrame(p['data'])
+        df_json = pd.DataFrame(p['data'])
+        df_json["Label"] = df_json["Label"].astype(str)
+        st.session_state.main_df = df_json
         if 'settings' in p: st.session_state.update(p['settings'])
         st.session_state.editor_key += 1
 
@@ -116,11 +120,19 @@ c1, c2 = st.columns(2)
 with c1: st.file_uploader("📂 Import CSV/Excel", type=['csv','xlsx'], key="csv_uploader", on_change=handle_upload)
 with c2: st.file_uploader("💾 Load Project", type=['json'], key="json_uploader", on_change=handle_json)
 
-df_input = st.data_editor(st.session_state.main_df, num_rows="dynamic", use_container_width=True, key=f"editor_{st.session_state.editor_key}", hide_index=False)
+# FORCE LABEL TO BE TREATED AS TEXT COLUMN
+df_input = st.data_editor(
+    st.session_state.main_df, 
+    num_rows="dynamic", 
+    use_container_width=True, 
+    key=f"editor_{st.session_state.editor_key}", 
+    hide_index=False,
+    column_config={"Label": st.column_config.TextColumn("Label")} 
+)
 
-# Sanitization
+# Sanitization - specifically stripping time stamps from the strings
 df_clean = df_input.copy()
-df_clean["Label"] = df_clean["Label"].fillna("").astype(str)
+df_clean["Label"] = df_clean["Label"].fillna("").astype(str).str.replace(r' 00:00:00$', '', regex=True)
 df_clean["Value 1"] = pd.to_numeric(df_clean["Value 1"], errors='coerce').fillna(0)
 if "Value 2" in df_clean.columns:
     df_clean["Value 2"] = pd.to_numeric(df_clean["Value 2"], errors='coerce').fillna(0)
@@ -148,7 +160,6 @@ symbol_map = {"Circle": "o", "Square": "s", "Triangle": "^", "Diamond": "D"}
 m_sym = symbol_map.get(st.session_state.marker_symbol, "o")
 val_font = prop_bold if st.session_state.value_bold else prop_reg
 
-# Plotting Data
 if st.session_state.chart_type == "Bar":
     width_val = 0.8 - st.session_state.bar_gap
     colors = [st.session_state.last_c1] * len(v1)
@@ -185,26 +196,18 @@ else:
             clean_val = f"{v:g}" 
             ax.text(i, v + (max(v1 or [1])*0.03), clean_val, color=txt_col, fontproperties=val_font, fontsize=st.session_state.value_sz, ha='center', zorder=5)
 
-# --- CRITICAL FIX: ISOLATED AXIS PARAMS ---
 ax.set_xticks(x)
 ax.set_xticklabels(labels, fontproperties=prop_bold if st.session_state.x_bold else prop_reg, fontsize=st.session_state.x_sz, color=txt_col)
-ax.tick_params(axis='x', colors=txt_col, labelsize=st.session_state.x_sz, width=3, length=8, zorder=4)
-
 ax.yaxis.set_major_locator(plt.MultipleLocator(st.session_state.y_step))
-ax.tick_params(axis='y', colors=txt_col, labelsize=st.session_state.y_sz, width=3, length=8, zorder=4)
+ax.tick_params(axis='both', colors=txt_col, labelsize=st.session_state.y_sz, width=3, length=8, zorder=4)
 
-# Force font properties for ticks individually
 for label in ax.get_yticklabels():
     label.set_fontproperties(prop_bold if st.session_state.y_bold else prop_reg)
     label.set_fontsize(st.session_state.y_sz)
-for label in ax.get_xticklabels():
-    label.set_fontproperties(prop_bold if st.session_state.x_bold else prop_reg)
-    label.set_fontsize(st.session_state.x_sz)
 
 all_data = v1 + (df_clean["Value 2"].tolist() if (st.session_state.show_v2 and "Value 2" in df_clean.columns) else [])
 ax.set_ylim(0 if st.session_state.y_start_zero else min(all_data or [0]) * 0.9, max(all_data or [10]) * 1.25)
 
-# Spines
 ax.spines['top'].set_visible(False)
 ax.spines['right'].set_visible(False)
 ax.spines['left'].set_linewidth(4); ax.spines['left'].set_color(txt_col); ax.spines['left'].set_zorder(4)
