@@ -82,10 +82,6 @@ with st.sidebar:
     st.session_state.y_start_zero = st.checkbox("Force Axis to 0", value=st.session_state.y_start_zero)
     
     st.divider()
-    st.write("**X-Axis Rotation**")
-    st.session_state.x_rot = st.slider("Rotation (Degrees)", 0, 90, st.session_state.x_rot)
-
-    st.divider()
     st.write("**Highlight Point**")
     h_opts = ["None"] + list(range(len(st.session_state.main_df)))
     st.session_state.highlight_idx = st.selectbox("Index", h_opts, index=0)
@@ -102,6 +98,7 @@ with st.sidebar:
     st.session_state.y_step = st.number_input("Y Interval", value=float(st.session_state.y_step))
     st.session_state.x_sz = st.slider("Axis Label Size (X)", 10, 100, st.session_state.x_sz)
     st.session_state.x_bold = st.checkbox("Axis Label Bold (X)", value=st.session_state.x_bold)
+    st.session_state.x_rot = st.slider("X-Axis Rotation", -90, 90, st.session_state.x_rot) # MOVED HERE
     st.session_state.y_sz = st.slider("Axis Value Size (Y)", 10, 100, st.session_state.y_sz)
     st.session_state.y_bold = st.checkbox("Axis Value Bold (Y)", value=st.session_state.y_bold)
     
@@ -189,16 +186,14 @@ else:
             ax.text(i, v + (max(v1 or [1])*0.03), clean_val, color=txt_col, fontproperties=val_font, fontsize=st.session_state.value_sz, ha='center', zorder=5)
 
 # --- 8. AXIS LOCKDOWN ---
-# X-Axis Styling
 ax.set_xticks(x)
 ax.set_xticklabels(labels, fontproperties=prop_bold if st.session_state.x_bold else prop_reg, fontsize=st.session_state.x_sz, color=txt_col, rotation=st.session_state.x_rot)
 ax.tick_params(axis='x', colors=txt_col, width=3, length=8, zorder=4)
 
-# Y-Axis Styling
 ax.yaxis.set_major_locator(plt.MultipleLocator(st.session_state.y_step))
 ax.tick_params(axis='y', colors=txt_col, width=3, length=8, zorder=4)
 
-# Explicitly loop to ensure no cross-talk on font sizes
+# Explicit separation to avoid cross-talk
 for tick in ax.get_yticklabels():
     tick.set_fontproperties(prop_bold if st.session_state.y_bold else prop_reg)
     tick.set_fontsize(st.session_state.y_sz)
