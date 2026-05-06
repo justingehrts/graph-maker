@@ -92,7 +92,7 @@ with st.sidebar:
     st.session_state.highlight_color = st.color_picker("Highlight Color", value=st.session_state.highlight_color)
 
     st.divider()
-    st.write("**Data Labels (Values on Plot)**")
+    st.write("**Data Labels**")
     st.session_state.show_values = st.checkbox("Show Values", value=st.session_state.show_values)
     st.session_state.value_sz = st.slider("Data Label Font Size", 5, 80, st.session_state.value_sz)
     st.session_state.value_bold = st.checkbox("Data Bold", value=st.session_state.value_bold)
@@ -110,7 +110,6 @@ with st.sidebar:
     st.session_state.text_choice = st.selectbox("Text Color Preset", list(color_map.keys()), index=list(color_map.keys()).index(st.session_state.text_choice))
     txt_col = color_map[st.session_state.text_choice]
 
-    # --- REWORKED COLOR SECTION ---
     st.write("**Data Colors**")
     presets = {"NY": "#045EA8", "GD": "#FFD700", "RD": "#C80000"}
     
@@ -137,7 +136,6 @@ with c2: st.file_uploader("💾 Load Project", type=['json'], key="json_uploader
 
 df_input = st.data_editor(st.session_state.main_df, num_rows="dynamic", use_container_width=True, key=f"editor_{st.session_state.editor_key}", hide_index=False, column_config={"Label": st.column_config.TextColumn("Label")})
 
-# Sanitization
 df_clean = df_input.copy()
 df_clean["Label"] = df_clean["Label"].fillna("").astype(str).str.replace(r' 00:00:00$', '', regex=True)
 df_clean["Value 1"] = pd.to_numeric(df_clean["Value 1"], errors='coerce').fillna(0)
@@ -180,4 +178,57 @@ if st.session_state.chart_type == "Bar":
         r2 = ax.bar([i + width_val/4 for i in x], v2, width=width_val/2, color=st.session_state.last_c2, zorder=2)
         if st.session_state.show_values:
             ax.bar_label(r1, padding=5, color=txt_col, fontproperties=val_font, fontsize=st.session_state.value_sz, fmt='%g')
-            ax.bar_label(r2, padding=5, color=txt_col, fontproperties=val_font, fontsize=st.session_
+            ax.bar_label(r2, padding=5, color=txt_col, fontproperties=val_font, fontsize=st.session_state.value_sz, fmt='%g')
+    else:
+        r = ax.bar(x, v1, width=width_val, color=colors, zorder=2)
+        if st.session_state.show_values:
+            ax.bar_label(r, padding=5, color=txt_col, fontproperties=val_font, fontsize=st.session_state.value_sz, fmt='%g')
+else:
+    m_colors = [st.session_state.last_c1] * len(v1)
+    if st.session_state.highlight_idx != "None":
+        try: m_colors[int(st.session_state.highlight_idx)] = st.session_state.highlight_color
+        except: pass
+    ax.plot(x, v1, color=st.session_state.last_c1, linewidth=st.session_state.line_width, zorder=2)
+    ax.scatter(x, v1, color=m_colors, s=st.session_state.marker_size**2, marker=m_sym, zorder=3)
+    if st.session_state.show_v2 and "Value 2" in df_clean.columns:
+        v2 = df_clean["Value 2"].tolist()
+        ax.plot(x, v2, color=st.session_state.last_c2, linewidth=st.session_state.line_width, marker=m_sym, markersize=st.session_state.marker_size, zorder=2)
+    if st.session_state.show_values:
+        for i, v in enumerate(v1):
+            clean_val = f"{v:g}" 
+            ax.text(i, v + (max(v1 or [1])*0.03), clean_val, color=txt_col, fontproperties=val_font, fontsize=st.session_state.value_sz, ha='center', zorder=5)
+
+# --- 8. AXIS LOCKDOWN ---
+ax.set_xticks(x)
+ax.set_xticklabels(labels, fontproperties=prop_bold if st.session_state.x_bold else prop_reg, fontsize=st.session_state.x_sz, color=txt_col, rotation=st.session_state.x_rot)
+ax.tick_params(axis='x', colors=txt_col, width=3, length=8, zorder=4)
+
+ax.yaxis.set_major_locator(plt.MultipleLocator(st.session_state.y_step))
+ax.tick_params(axis='y', colors=txt_col, width=3, length=8, zorder=4)
+
+for tick in ax.get_yticklabels():
+    tick.set_fontproperties(prop_bold if st.session_state.y_bold else prop_reg)
+    tick.set_fontsize(st.session_state.y_sz)
+for tick in ax.get_xticklabels():
+    tick.set_fontproperties(prop_bold if st.session_state.x_bold else prop_reg)
+    tick.set_fontsize(st.session_state.x_sz)
+
+all_data = v1 + (df_clean["Value 2"].tolist() if (st.session_state.show_v2 and "Value 2" in df_clean.columns) else [])
+ax.set_ylim(0 if st.session_state.y_start_zero else min(all_data or [0]) * 0.9, max(all_data or [10]) * 1.25)
+
+ax.spines['top'].set_visible(False)
+ax.spines['right'].set_visible(False)
+ax.spines['left'].set_linewidth(4); ax.spines['left'].set_color(txt_col); ax.spines['left'].set_zorder(4)
+ax.spines['bottom'].set_linewidth(4); ax.spines['bottom'].set_color(txt_col); ax.spines['bottom'].set_zorder(4)
+ax.grid(True, axis='y', color='gray', linestyle='-', alpha=0.3, zorder=1)
+
+# --- 9. EXPORT ---
+buf = io.BytesIO()
+plt.savefig(buf, format="png", transparent=True, bbox_inches='tight', pad_inches=0.1)
+st.image(buf, use_container_width=True)
+plt.close(fig)
+
+st.download_button("🚀 DOWNLOAD PNG", data=buf.getvalue(), file_name=f"weather_graphic_{datetime.now().strftime('%H%M%S')}.png", mime="image/png")
+
+if st.button("💾 SAVE PROJECT SETTINGS"):
+    st.download_button("Confirm JSON Download", data=json.dumps({"data": df_input.to_dict(orient='records'), "settings": {k:v for k,v in st.session_state.items() if k not in ['main_df','editor_key','csv_uploader','json_uploader']}}), file_name="weather_project.json")
