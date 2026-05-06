@@ -19,7 +19,7 @@ def load_fonts(reg_path, bold_path):
 
 prop_reg, prop_bold = load_fonts(path_reg, path_bold)
 
-st.set_page_config(page_title="Max Graph Maker", layout="wide")
+st.set_page_config(page_title="Weather Graphic Pro", layout="wide")
 
 # --- 2. SESSION STATE ---
 if 'main_df' not in st.session_state:
@@ -98,7 +98,7 @@ with st.sidebar:
     st.session_state.y_step = st.number_input("Y Interval", value=float(st.session_state.y_step))
     st.session_state.x_sz = st.slider("Axis Label Size (X)", 10, 100, st.session_state.x_sz)
     st.session_state.x_bold = st.checkbox("Axis Label Bold (X)", value=st.session_state.x_bold)
-    st.session_state.x_rot = st.slider("X-Axis Rotation", -90, 90, st.session_state.x_rot) # MOVED HERE
+    st.session_state.x_rot = st.slider("X-Axis Rotation", -90, 90, st.session_state.x_rot)
     st.session_state.y_sz = st.slider("Axis Value Size (Y)", 10, 100, st.session_state.y_sz)
     st.session_state.y_bold = st.checkbox("Axis Value Bold (Y)", value=st.session_state.y_bold)
     
@@ -107,9 +107,26 @@ with st.sidebar:
     st.session_state.text_choice = st.selectbox("Text Color Preset", list(color_map.keys()), index=list(color_map.keys()).index(st.session_state.text_choice))
     txt_col = color_map[st.session_state.text_choice]
 
+    # --- UPDATED COLOR SECTION WITH PRESETS ---
     st.write("**Data Colors**")
-    st.session_state.last_c1 = st.color_picker("S1 Picker", value=st.session_state.last_c1)
-    st.session_state.last_c2 = st.color_picker("S2 Color", value=st.session_state.last_c2)
+    presets = {"Navy": "#045EA8", "Gold": "#FFD700", "Red": "#C80000", "Green": "#2E7D32"}
+    
+    c1_col, c2_col = st.columns(2)
+    with c1_col:
+        st.session_state.last_c1 = st.color_picker("S1 Picker", value=st.session_state.last_c1)
+        # Horizontal presets for S1
+        cp1, cp2, cp3 = st.columns(3)
+        if cp1.button("Navy", key="s1_n"): st.session_state.last_c1 = presets["Navy"]; st.rerun()
+        if cp2.button("Gold", key="s1_g"): st.session_state.last_c1 = presets["Gold"]; st.rerun()
+        if cp3.button("Red", key="s1_r"): st.session_state.last_c1 = presets["Red"]; st.rerun()
+
+    with c2_col:
+        st.session_state.last_c2 = st.color_picker("S2 Picker", value=st.session_state.last_c2)
+        # Horizontal presets for S2
+        cp4, cp5, cp6 = st.columns(3)
+        if cp4.button("Navy", key="s2_n"): st.session_state.last_c2 = presets["Navy"]; st.rerun()
+        if cp5.button("Gold", key="s2_g"): st.session_state.last_c2 = presets["Gold"]; st.rerun()
+        if cp6.button("Red", key="s2_r"): st.session_state.last_c2 = presets["Red"]; st.rerun()
     
     if st.button("🔄 APPLY SETTINGS"):
         st.rerun()
@@ -193,7 +210,6 @@ ax.tick_params(axis='x', colors=txt_col, width=3, length=8, zorder=4)
 ax.yaxis.set_major_locator(plt.MultipleLocator(st.session_state.y_step))
 ax.tick_params(axis='y', colors=txt_col, width=3, length=8, zorder=4)
 
-# Explicit separation to avoid cross-talk
 for tick in ax.get_yticklabels():
     tick.set_fontproperties(prop_bold if st.session_state.y_bold else prop_reg)
     tick.set_fontsize(st.session_state.y_sz)
