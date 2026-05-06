@@ -82,10 +82,6 @@ with st.sidebar:
     st.session_state.y_start_zero = st.checkbox("Force Axis to 0", value=st.session_state.y_start_zero)
     
     st.divider()
-    st.write("**X-Axis Rotation**")
-    st.session_state.x_rot = st.slider("Rotation (Degrees)", -90, 90, st.session_state.x_rot)
-
-    st.divider()
     st.write("**Highlight Point**")
     h_opts = ["None"] + list(range(len(st.session_state.main_df)))
     st.session_state.highlight_idx = st.selectbox("Index", h_opts, index=0)
@@ -102,6 +98,7 @@ with st.sidebar:
     st.session_state.y_step = st.number_input("Y Interval", value=float(st.session_state.y_step))
     st.session_state.x_sz = st.slider("Axis Label Size (X)", 10, 100, st.session_state.x_sz)
     st.session_state.x_bold = st.checkbox("Axis Label Bold (X)", value=st.session_state.x_bold)
+    st.session_state.x_rot = st.slider("Rotation (Degrees)", -90, 90, st.session_state.x_rot)
     st.session_state.y_sz = st.slider("Axis Value Size (Y)", 10, 100, st.session_state.y_sz)
     st.session_state.y_bold = st.checkbox("Axis Value Bold (Y)", value=st.session_state.y_bold)
     
@@ -110,20 +107,23 @@ with st.sidebar:
     st.session_state.text_choice = st.selectbox("Text Color Preset", list(color_map.keys()), index=list(color_map.keys()).index(st.session_state.text_choice))
     txt_col = color_map[st.session_state.text_choice]
 
+    # --- RESTORED COLOR PRESETS ---
     st.write("**Data Colors**")
-    presets = {"NY": "#045EA8", "GD": "#FFD700", "RD": "#C80000"}
+    presets = {"NY": "#022E67", "RB": "#045EA8", "RD": "#C80000", "WT": "#FFFFFF"}
     
     st.session_state.last_c1 = st.color_picker("S1 Picker", value=st.session_state.last_c1)
-    cp1, cp2, cp3 = st.columns(3)
-    if cp1.button("NY", key="s1_n"): st.session_state.last_c1 = presets["NY"]; st.rerun()
-    if cp2.button("GD", key="s1_g"): st.session_state.last_c1 = presets["GD"]; st.rerun()
-    if cp3.button("RD", key="s1_r"): st.session_state.last_c1 = presets["RD"]; st.rerun()
+    cp1, cp2, cp3, cp4 = st.columns(4)
+    if cp1.button("NY", key="s1_ny"): st.session_state.last_c1 = presets["NY"]; st.rerun()
+    if cp2.button("RB", key="s1_rb"): st.session_state.last_c1 = presets["RB"]; st.rerun()
+    if cp3.button("RD", key="s1_rd"): st.session_state.last_c1 = presets["RD"]; st.rerun()
+    if cp4.button("WT", key="s1_wt"): st.session_state.last_c1 = presets["WT"]; st.rerun()
 
     st.session_state.last_c2 = st.color_picker("S2 Picker", value=st.session_state.last_c2)
-    cp4, cp5, cp6 = st.columns(3)
-    if cp4.button("NY", key="s2_n"): st.session_state.last_c2 = presets["NY"]; st.rerun()
-    if cp5.button("GD", key="s2_g"): st.session_state.last_c2 = presets["GD"]; st.rerun()
-    if cp6.button("RD", key="s2_r"): st.session_state.last_c2 = presets["RD"]; st.rerun()
+    cp5, cp6, cp7, cp8 = st.columns(4)
+    if cp5.button("NY", key="s2_ny"): st.session_state.last_c2 = presets["NY"]; st.rerun()
+    if cp6.button("RB", key="s2_rb"): st.session_state.last_c2 = presets["RB"]; st.rerun()
+    if cp7.button("RD", key="s2_rd"): st.session_state.last_c2 = presets["RD"]; st.rerun()
+    if cp8.button("WT", key="s2_wt"): st.session_state.last_c2 = presets["WT"]; st.rerun()
     
     if st.button("🔄 APPLY SETTINGS"):
         st.rerun()
@@ -206,6 +206,7 @@ ax.tick_params(axis='x', colors=txt_col, width=3, length=8, zorder=4)
 ax.yaxis.set_major_locator(plt.MultipleLocator(st.session_state.y_step))
 ax.tick_params(axis='y', colors=txt_col, width=3, length=8, zorder=4)
 
+# Force individual font properties to prevent cross-talk
 for tick in ax.get_yticklabels():
     tick.set_fontproperties(prop_bold if st.session_state.y_bold else prop_reg)
     tick.set_fontsize(st.session_state.y_sz)
