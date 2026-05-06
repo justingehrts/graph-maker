@@ -82,6 +82,10 @@ with st.sidebar:
     st.session_state.y_start_zero = st.checkbox("Force Axis to 0", value=st.session_state.y_start_zero)
     
     st.divider()
+    st.write("**X-Axis Rotation**")
+    st.session_state.x_rot = st.slider("Rotation (Degrees)", -90, 90, st.session_state.x_rot)
+
+    st.divider()
     st.write("**Highlight Point**")
     h_opts = ["None"] + list(range(len(st.session_state.main_df)))
     st.session_state.highlight_idx = st.selectbox("Index", h_opts, index=0)
@@ -98,7 +102,6 @@ with st.sidebar:
     st.session_state.y_step = st.number_input("Y Interval", value=float(st.session_state.y_step))
     st.session_state.x_sz = st.slider("Axis Label Size (X)", 10, 100, st.session_state.x_sz)
     st.session_state.x_bold = st.checkbox("Axis Label Bold (X)", value=st.session_state.x_bold)
-    st.session_state.x_rot = st.slider("X-Axis Rotation", -90, 90, st.session_state.x_rot)
     st.session_state.y_sz = st.slider("Axis Value Size (Y)", 10, 100, st.session_state.y_sz)
     st.session_state.y_bold = st.checkbox("Axis Value Bold (Y)", value=st.session_state.y_bold)
     
@@ -107,26 +110,21 @@ with st.sidebar:
     st.session_state.text_choice = st.selectbox("Text Color Preset", list(color_map.keys()), index=list(color_map.keys()).index(st.session_state.text_choice))
     txt_col = color_map[st.session_state.text_choice]
 
-    # --- UPDATED COLOR SECTION WITH PRESETS ---
+    # --- REWORKED COLOR SECTION ---
     st.write("**Data Colors**")
-    presets = {"Navy": "#045EA8", "Gold": "#FFD700", "Red": "#C80000", "Green": "#2E7D32"}
+    presets = {"NY": "#045EA8", "GD": "#FFD700", "RD": "#C80000"}
     
-    c1_col, c2_col = st.columns(2)
-    with c1_col:
-        st.session_state.last_c1 = st.color_picker("S1 Picker", value=st.session_state.last_c1)
-        # Horizontal presets for S1
-        cp1, cp2, cp3 = st.columns(3)
-        if cp1.button("Navy", key="s1_n"): st.session_state.last_c1 = presets["Navy"]; st.rerun()
-        if cp2.button("Gold", key="s1_g"): st.session_state.last_c1 = presets["Gold"]; st.rerun()
-        if cp3.button("Red", key="s1_r"): st.session_state.last_c1 = presets["Red"]; st.rerun()
+    st.session_state.last_c1 = st.color_picker("S1 Picker", value=st.session_state.last_c1)
+    cp1, cp2, cp3 = st.columns(3)
+    if cp1.button("NY", key="s1_n"): st.session_state.last_c1 = presets["NY"]; st.rerun()
+    if cp2.button("GD", key="s1_g"): st.session_state.last_c1 = presets["GD"]; st.rerun()
+    if cp3.button("RD", key="s1_r"): st.session_state.last_c1 = presets["RD"]; st.rerun()
 
-    with c2_col:
-        st.session_state.last_c2 = st.color_picker("S2 Picker", value=st.session_state.last_c2)
-        # Horizontal presets for S2
-        cp4, cp5, cp6 = st.columns(3)
-        if cp4.button("Navy", key="s2_n"): st.session_state.last_c2 = presets["Navy"]; st.rerun()
-        if cp5.button("Gold", key="s2_g"): st.session_state.last_c2 = presets["Gold"]; st.rerun()
-        if cp6.button("Red", key="s2_r"): st.session_state.last_c2 = presets["Red"]; st.rerun()
+    st.session_state.last_c2 = st.color_picker("S2 Picker", value=st.session_state.last_c2)
+    cp4, cp5, cp6 = st.columns(3)
+    if cp4.button("NY", key="s2_n"): st.session_state.last_c2 = presets["NY"]; st.rerun()
+    if cp5.button("GD", key="s2_g"): st.session_state.last_c2 = presets["GD"]; st.rerun()
+    if cp6.button("RD", key="s2_r"): st.session_state.last_c2 = presets["RD"]; st.rerun()
     
     if st.button("🔄 APPLY SETTINGS"):
         st.rerun()
@@ -182,57 +180,4 @@ if st.session_state.chart_type == "Bar":
         r2 = ax.bar([i + width_val/4 for i in x], v2, width=width_val/2, color=st.session_state.last_c2, zorder=2)
         if st.session_state.show_values:
             ax.bar_label(r1, padding=5, color=txt_col, fontproperties=val_font, fontsize=st.session_state.value_sz, fmt='%g')
-            ax.bar_label(r2, padding=5, color=txt_col, fontproperties=val_font, fontsize=st.session_state.value_sz, fmt='%g')
-    else:
-        r = ax.bar(x, v1, width=width_val, color=colors, zorder=2)
-        if st.session_state.show_values:
-            ax.bar_label(r, padding=5, color=txt_col, fontproperties=val_font, fontsize=st.session_state.value_sz, fmt='%g')
-else:
-    m_colors = [st.session_state.last_c1] * len(v1)
-    if st.session_state.highlight_idx != "None":
-        try: m_colors[int(st.session_state.highlight_idx)] = st.session_state.highlight_color
-        except: pass
-    ax.plot(x, v1, color=st.session_state.last_c1, linewidth=st.session_state.line_width, zorder=2)
-    ax.scatter(x, v1, color=m_colors, s=st.session_state.marker_size**2, marker=m_sym, zorder=3)
-    if st.session_state.show_v2 and "Value 2" in df_clean.columns:
-        v2 = df_clean["Value 2"].tolist()
-        ax.plot(x, v2, color=st.session_state.last_c2, linewidth=st.session_state.line_width, marker=m_sym, markersize=st.session_state.marker_size, zorder=2)
-    if st.session_state.show_values:
-        for i, v in enumerate(v1):
-            clean_val = f"{v:g}" 
-            ax.text(i, v + (max(v1 or [1])*0.03), clean_val, color=txt_col, fontproperties=val_font, fontsize=st.session_state.value_sz, ha='center', zorder=5)
-
-# --- 8. AXIS LOCKDOWN ---
-ax.set_xticks(x)
-ax.set_xticklabels(labels, fontproperties=prop_bold if st.session_state.x_bold else prop_reg, fontsize=st.session_state.x_sz, color=txt_col, rotation=st.session_state.x_rot)
-ax.tick_params(axis='x', colors=txt_col, width=3, length=8, zorder=4)
-
-ax.yaxis.set_major_locator(plt.MultipleLocator(st.session_state.y_step))
-ax.tick_params(axis='y', colors=txt_col, width=3, length=8, zorder=4)
-
-for tick in ax.get_yticklabels():
-    tick.set_fontproperties(prop_bold if st.session_state.y_bold else prop_reg)
-    tick.set_fontsize(st.session_state.y_sz)
-for tick in ax.get_xticklabels():
-    tick.set_fontproperties(prop_bold if st.session_state.x_bold else prop_reg)
-    tick.set_fontsize(st.session_state.x_sz)
-
-all_data = v1 + (df_clean["Value 2"].tolist() if (st.session_state.show_v2 and "Value 2" in df_clean.columns) else [])
-ax.set_ylim(0 if st.session_state.y_start_zero else min(all_data or [0]) * 0.9, max(all_data or [10]) * 1.25)
-
-ax.spines['top'].set_visible(False)
-ax.spines['right'].set_visible(False)
-ax.spines['left'].set_linewidth(4); ax.spines['left'].set_color(txt_col); ax.spines['left'].set_zorder(4)
-ax.spines['bottom'].set_linewidth(4); ax.spines['bottom'].set_color(txt_col); ax.spines['bottom'].set_zorder(4)
-ax.grid(True, axis='y', color='gray', linestyle='-', alpha=0.3, zorder=1)
-
-# --- 9. EXPORT ---
-buf = io.BytesIO()
-plt.savefig(buf, format="png", transparent=True, bbox_inches='tight', pad_inches=0.1)
-st.image(buf, use_container_width=True)
-plt.close(fig)
-
-st.download_button("🚀 DOWNLOAD PNG", data=buf.getvalue(), file_name=f"weather_graphic_{datetime.now().strftime('%H%M%S')}.png", mime="image/png")
-
-if st.button("💾 SAVE PROJECT SETTINGS"):
-    st.download_button("Confirm JSON Download", data=json.dumps({"data": df_input.to_dict(orient='records'), "settings": {k:v for k,v in st.session_state.items() if k not in ['main_df','editor_key','csv_uploader','json_uploader']}}), file_name="weather_project.json")
+            ax.bar_label(r2, padding=5, color=txt_col, fontproperties=val_font, fontsize=st.session_
