@@ -19,14 +19,16 @@ def load_fonts(reg_path, bold_path):
 
 prop_reg, prop_bold = load_fonts(path_reg, path_bold)
 
-st.set_page_config(page_title="Max Graph Maker", layout="wide")
+# UPDATED: Set to "Max Graph Maker" with a built-in chart favicon
+st.set_page_config(page_title="Max Graph Maker", page_icon="📊", layout="wide")
 
 # --- 2. SESSION STATE ---
 if 'main_df' not in st.session_state:
     st.session_state.main_df = pd.DataFrame({
         "Label": ["Mon", "Tue", "Wed", "Thu", "Fri"], 
-        "Value 1": [75, 80, 50, 60, 75], 
-        "Value 2": [65, 70, 10, 52, 37]
+        # UPDATED: Float literals unlock decimal entry without forcing trailing zeros on the graph
+        "Value 1": [75.0, 80.0, 50.0, 60.0, 75.0], 
+        "Value 2": [65.0, 70.0, 10.0, 52.0, 37.0]
     })
 
 state_defaults = {
@@ -107,7 +109,6 @@ with st.sidebar:
     st.session_state.text_choice = st.selectbox("Text Color Preset", list(color_map.keys()), index=list(color_map.keys()).index(st.session_state.text_choice))
     txt_col = color_map[st.session_state.text_choice]
 
-    # --- RESTORED COLOR PRESETS ---
     st.write("**Data Colors**")
     presets = {"NY": "#022E67", "RB": "#045EA8", "RD": "#C80000", "WT": "#FFFFFF"}
     
@@ -206,7 +207,6 @@ ax.tick_params(axis='x', colors=txt_col, width=3, length=8, zorder=4)
 ax.yaxis.set_major_locator(plt.MultipleLocator(st.session_state.y_step))
 ax.tick_params(axis='y', colors=txt_col, width=3, length=8, zorder=4)
 
-# Force individual font properties to prevent cross-talk
 for tick in ax.get_yticklabels():
     tick.set_fontproperties(prop_bold if st.session_state.y_bold else prop_reg)
     tick.set_fontsize(st.session_state.y_sz)
