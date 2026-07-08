@@ -19,14 +19,12 @@ def load_fonts(reg_path, bold_path):
 
 prop_reg, prop_bold = load_fonts(path_reg, path_bold)
 
-# UPDATED: Set to "Max Graph Maker" with a built-in chart favicon
 st.set_page_config(page_title="Max Graph Maker", page_icon="📊", layout="wide")
 
 # --- 2. SESSION STATE ---
 if 'main_df' not in st.session_state:
     st.session_state.main_df = pd.DataFrame({
         "Label": ["Mon", "Tue", "Wed", "Thu", "Fri"], 
-        # UPDATED: Float literals unlock decimal entry without forcing trailing zeros on the graph
         "Value 1": [75.0, 80.0, 50.0, 60.0, 75.0], 
         "Value 2": [65.0, 70.0, 10.0, 52.0, 37.0]
     })
@@ -44,14 +42,31 @@ state_defaults = {
 for key, val in state_defaults.items():
     if key not in st.session_state: st.session_state[key] = val
 
-# --- 3. CALLBACKS ---
+# --- 3. CALLBACKS (REVISED FOR ROBUST IMPORT) ---
 def handle_upload():
     f = st.session_state.csv_uploader
     if f:
-        df = pd.read_csv(f) if f.name.endswith('.csv') else pd.read_excel(f)
-        df.columns = ["Label", "Value 1"] + list(df.columns[2:])
-        df["Label"] = df["Label"].astype(str).str.replace(r' 00:00:00$', '', regex=True)
-        st.session_state.main_df = df.reset_index(drop=True)
+        new_df = pd.read_csv(f) if f.name.endswith('.csv') else pd.read_excel(f)
+        
+        # Standardize incoming column names to align positions
+        incoming_cols = list(new_df.columns)
+        rename_dict = {}
+        if len(incoming_cols) > 0: rename_dict[incoming_cols[0]] = "Label"
+        if len(incoming_cols) > 1: rename_dict[incoming_cols[1]] = "Value 1"
+        if len(incoming_cols) > 2: rename_dict[incoming_cols[2]] = "Value 2"
+        new_df = new_df.rename(columns=rename_dict)
+        
+        # Stripping timestamps safely
+        if "Label" in new_df.columns:
+            new_df["Label"] = new_df["Label"].astype(str).str.replace(r' 00:00:00$', '', regex=True)
+            
+        # Ensure Value 2 structure is never completely vaporized during a 2-column import
+        if "Value 2" not in new_df.columns:
+            new_df["Value 2"] = 0.0
+            
+        # Retain only the structured core columns to prevent unexpected file fields from breaking layouts
+        core_cols = ["Label", "Value 1", "Value 2"]
+        st.session_state.main_df = new_df[core_cols].reset_index(drop=True)
         st.session_state.editor_key += 1
 
 def handle_json():
@@ -139,9 +154,9 @@ df_input = st.data_editor(st.session_state.main_df, num_rows="dynamic", use_cont
 
 df_clean = df_input.copy()
 df_clean["Label"] = df_clean["Label"].fillna("").astype(str).str.replace(r' 00:00:00$', '', regex=True)
-df_clean["Value 1"] = pd.to_numeric(df_clean["Value 1"], errors='coerce').fillna(0)
+df_clean["Value 1"] = pd.to_numeric(df_clean["Value 1"], errors='coerce').fillna(0.0)
 if "Value 2" in df_clean.columns:
-    df_clean["Value 2"] = pd.to_numeric(df_clean["Value 2"], errors='coerce').fillna(0)
+    df_clean["Value 2"] = pd.to_numeric(df_clean["Value 2"], errors='coerce').fillna(0.0)
 
 if not df_input.equals(st.session_state.main_df):
     st.session_state.main_df = df_input
