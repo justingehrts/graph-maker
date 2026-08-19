@@ -29,6 +29,7 @@ if 'main_df' not in st.session_state:
         "Value 2": [65.0, 70.0, 10.0, 52.0, 37.0]
     })
 
+# Used as our master list for clean JSON exports
 state_defaults = {
     'last_c1': '#045EA8', 'last_c2': '#C80000', 'show_v2': False, 
     'chart_type': "Bar", 'width': 1920, 'height': 1080, 
@@ -43,37 +44,51 @@ for key, val in state_defaults.items():
     if key not in st.session_state: st.session_state[key] = val
 
 # --- 3. CALLBACKS ---
+def set_preset_color(target_key, color_hex):
+    """Native callback to update color instantly without double-reruns."""
+    st.session_state[target_key] = color_hex
+
 def handle_upload():
     f = st.session_state.csv_uploader
     if f:
-        new_df = pd.read_csv(f) if f.name.endswith('.csv') else pd.read_excel(f)
-        
-        incoming_cols = list(new_df.columns)
-        rename_dict = {}
-        if len(incoming_cols) > 0: rename_dict[incoming_cols[0]] = "Label"
-        if len(incoming_cols) > 1: rename_dict[incoming_cols[1]] = "Value 1"
-        if len(incoming_cols) > 2: rename_dict[incoming_cols[2]] = "Value 2"
-        new_df = new_df.rename(columns=rename_dict)
-        
-        if "Label" in new_df.columns:
-            new_df["Label"] = new_df["Label"].astype(str).str.replace(r' 00:00:00$', '', regex=True)
+        try:
+            new_df = pd.read_csv(f) if f.name.endswith('.csv') else pd.read_excel(f)
             
-        if "Value 2" not in new_df.columns:
-            new_df["Value 2"] = 0.0
+            incoming_cols = list(new_df.columns)
+            rename_dict = {}
+            if len(incoming_cols) > 0: rename_dict[incoming_cols[0]] = "Label"
+            if len(incoming_cols) > 1: rename_dict[incoming_cols[1]] = "Value 1"
+            if len(incoming_cols) > 2: rename_dict[incoming_cols[2]] = "Value 2"
+            new_df = new_df.rename(columns=rename_dict)
             
-        core_cols = ["Label", "Value 1", "Value 2"]
-        st.session_state.main_df = new_df[core_cols].reset_index(drop=True)
-        st.session_state.editor_key += 1
+            if "Label" in new_df.columns:
+                new_df["Label"] = new_df["Label"].astype(str).str.replace(r' 00:00:00$', '', regex=True)
+                
+            if "Value 2" not in new_df.columns:
+                new_df["Value 2"] = 0.0
+                
+            core_cols = ["Label", "Value 1", "Value 2"]
+            st.session_state.main_df = new_df[core_cols].reset_index(drop=True)
+            st.session_state.editor_key += 1
+        except Exception as e:
+            st.error(f"Failed to process file. Ensure it is a valid CSV or Excel document. Error: {e}")
 
 def handle_json():
     f = st.session_state.json_uploader
     if f:
-        p = json.load(f)
-        df_json = pd.DataFrame(p['data'])
-        df_json["Label"] = df_json["Label"].astype(str)
-        st.session_state.main_df = df_json
-        if 'settings' in p: st.session_state.update(p['settings'])
-        st.session_state.editor_key += 1
+        try:
+            p = json.load(f)
+            df_json = pd.DataFrame(p['data'])
+            df_json["Label"] = df_json["Label"].astype(str)
+            st.session_state.main_df = df_json
+            
+            if 'settings' in p: 
+                # Only load valid settings keys to prevent importing corrupted states
+                safe_settings = {k: v for k, v in p['settings'].items() if k in state_defaults}
+                st.session_state.update(safe_settings)
+            st.session_state.editor_key += 1
+        except Exception as e:
+            st.error(f"Failed to load project file. It may be corrupted. Error: {e}")
 
 # --- 4. UI / SIDEBAR ---
 with st.sidebar:
@@ -125,17 +140,17 @@ with st.sidebar:
     
     st.session_state.last_c1 = st.color_picker("S1 Picker", value=st.session_state.last_c1)
     cp1, cp2, cp3, cp4 = st.columns(4)
-    if cp1.button("NY", key="s1_ny"): st.session_state.last_c1 = presets["NY"]; st.rerun()
-    if cp2.button("RB", key="s1_rb"): st.session_state.last_c1 = presets["RB"]; st.rerun()
-    if cp3.button("RD", key="s1_rd"): st.session_state.last_c1 = presets["RD"]; st.rerun()
-    if cp4.button("WT", key="s1_wt"): st.session_state.last_c1 = presets["WT"]; st.rerun()
+    cp1.button("NY", key="s1_ny", on_click=set_preset_color, args=('last_c1', presets["NY"]))
+    cp2.button("RB", key="s1_rb", on_click=set_preset_color, args=('last_c1', presets["RB"]))
+    cp3.button("RD", key="s1_rd", on_click=set_preset_color, args=('last_c1', presets["RD"]))
+    cp4.button("WT", key="s1_wt", on_click=set_preset_color, args=('last_c1', presets["WT"]))
 
     st.session_state.last_c2 = st.color_picker("S2 Picker", value=st.session_state.last_c2)
     cp5, cp6, cp7, cp8 = st.columns(4)
-    if cp5.button("NY", key="s2_ny"): st.session_state.last_c2 = presets["NY"]; st.rerun()
-    if cp6.button("RB", key="s2_rb"): st.session_state.last_c2 = presets["RB"]; st.rerun()
-    if cp7.button("RD", key="s2_rd"): st.session_state.last_c2 = presets["RD"]; st.rerun()
-    if cp8.button("WT", key="s2_wt"): st.session_state.last_c2 = presets["WT"]; st.rerun()
+    cp5.button("NY", key="s2_ny", on_click=set_preset_color, args=('last_c2', presets["NY"]))
+    cp6.button("RB", key="s2_rb", on_click=set_preset_color, args=('last_c2', presets["RB"]))
+    cp7.button("RD", key="s2_rd", on_click=set_preset_color, args=('last_c2', presets["RD"]))
+    cp8.button("WT", key="s2_wt", on_click=set_preset_color, args=('last_c2', presets["WT"]))
     
     if st.button("🔄 APPLY SETTINGS"):
         st.rerun()
@@ -178,7 +193,7 @@ m_sym = symbol_map.get(st.session_state.marker_symbol, "o")
 val_font = prop_bold if st.session_state.value_bold else prop_reg
 
 if st.session_state.chart_type == "Bar":
-    width_val = 0.8 - st.session_state.bar_gap
+    width_val = max(0.1, 0.8 - st.session_state.bar_gap) # Hard floor applied
     colors = [st.session_state.last_c1] * len(v1)
     if st.session_state.highlight_idx != "None":
         try: colors[int(st.session_state.highlight_idx)] = st.session_state.highlight_color
@@ -235,13 +250,21 @@ ax.spines['bottom'].set_linewidth(4); ax.spines['bottom'].set_color(txt_col); ax
 ax.grid(True, axis='y', color='gray', linestyle='-', alpha=0.3, zorder=1)
 
 # --- 9. EXPORT ---
-fig.tight_layout() # Ensures everything fits inside the fixed dimension box
+fig.tight_layout() 
 buf = io.BytesIO()
-plt.savefig(buf, format="png", transparent=True) # Removed bbox_inches='tight' 
+plt.savefig(buf, format="png", transparent=True) 
 st.image(buf, use_container_width=True)
 plt.close(fig)
 
-st.download_button("🚀 DOWNLOAD PNG", data=buf.getvalue(), file_name=f"weather_graphic_{datetime.now().strftime('%H%M%S')}.png", mime="image/png")
+# Setup export downloads side-by-side
+col_dl1, col_dl2 = st.columns(2)
 
-if st.button("💾 SAVE PROJECT SETTINGS"):
-    st.download_button("Confirm JSON Download", data=json.dumps({"data": df_input.to_dict(orient='records'), "settings": {k:v for k,v in st.session_state.items() if k not in ['main_df','editor_key','csv_uploader','json_uploader']}}), file_name="weather_project.json")
+with col_dl1:
+    st.download_button("🚀 DOWNLOAD PNG", data=buf.getvalue(), file_name=f"weather_graphic_{datetime.now().strftime('%H%M%S')}.png", mime="image/png", use_container_width=True)
+
+with col_dl2:
+    # Generates a strictly clean dictionary for saving
+    clean_settings = {k: st.session_state[k] for k in state_defaults.keys() if k in st.session_state}
+    project_json = json.dumps({"data": df_clean.to_dict(orient='records'), "settings": clean_settings})
+    
+    st.download_button("💾 SAVE PROJECT (JSON)", data=project_json, file_name="max_graph_project.json", mime="application/json", use_container_width=True)
