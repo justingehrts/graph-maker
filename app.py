@@ -42,13 +42,12 @@ state_defaults = {
 for key, val in state_defaults.items():
     if key not in st.session_state: st.session_state[key] = val
 
-# --- 3. CALLBACKS (REVISED FOR ROBUST IMPORT) ---
+# --- 3. CALLBACKS ---
 def handle_upload():
     f = st.session_state.csv_uploader
     if f:
         new_df = pd.read_csv(f) if f.name.endswith('.csv') else pd.read_excel(f)
         
-        # Standardize incoming column names to align positions
         incoming_cols = list(new_df.columns)
         rename_dict = {}
         if len(incoming_cols) > 0: rename_dict[incoming_cols[0]] = "Label"
@@ -56,15 +55,12 @@ def handle_upload():
         if len(incoming_cols) > 2: rename_dict[incoming_cols[2]] = "Value 2"
         new_df = new_df.rename(columns=rename_dict)
         
-        # Stripping timestamps safely
         if "Label" in new_df.columns:
             new_df["Label"] = new_df["Label"].astype(str).str.replace(r' 00:00:00$', '', regex=True)
             
-        # Ensure Value 2 structure is never completely vaporized during a 2-column import
         if "Value 2" not in new_df.columns:
             new_df["Value 2"] = 0.0
             
-        # Retain only the structured core columns to prevent unexpected file fields from breaking layouts
         core_cols = ["Label", "Value 1", "Value 2"]
         st.session_state.main_df = new_df[core_cols].reset_index(drop=True)
         st.session_state.editor_key += 1
@@ -239,8 +235,9 @@ ax.spines['bottom'].set_linewidth(4); ax.spines['bottom'].set_color(txt_col); ax
 ax.grid(True, axis='y', color='gray', linestyle='-', alpha=0.3, zorder=1)
 
 # --- 9. EXPORT ---
+fig.tight_layout() # Ensures everything fits inside the fixed dimension box
 buf = io.BytesIO()
-plt.savefig(buf, format="png", transparent=True, bbox_inches='tight', pad_inches=0.1)
+plt.savefig(buf, format="png", transparent=True) # Removed bbox_inches='tight' 
 st.image(buf, use_container_width=True)
 plt.close(fig)
 
