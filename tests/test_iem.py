@@ -1,0 +1,144 @@
+"""Climate calculations checked against IEM's own published numbers for Ames (IATAME).
+
+Fixtures were downloaded from IEM on 2026-10-11:
+- iem_coop_IATAME.csv.gz: full daily record (cgi-bin/request/coop.py)
+- autoplot172_*: autoplot #172 running totals (accum) for 2024-2025
+- autoplot107_*: autoplot #107 period statistics per year for Jan 1 - Oct 10
+- por_daily_climo_IATAME.json: /api/1/climodat/por_daily_climo daily records
+"""
+import gzip
+import json
+from datetime import date
+from pathlib import Path
+
+import pandas as pd
+import pytest
+
+import iem
+
+FIX = Path(__file__).parent / "fixtures"
+
+
+@pytest.fixture(scope="module")
+def daily():
+    return iem.parse_daily_csv(gzip.open(FIX / "iem_coop_IATAME.csv.gz", "rt").read())
+
+
+def test_parse_daily(daily):
+    assert daily.index.min() == pd.Timestamp("1893-01-01")
+    assert daily.attrs["station_name"] == "Ames Area"
+    assert daily["snow"].isna().any()  # "M" became missing, not zero
+    assert (daily["precip"] == iem.TRACE).any()  # traces kept as 0.0001
+
+
+@pytest.mark.parametrize("year", [2024, 2025])
+def test_running_total_matches_autoplot_172(daily, year):
+    ref = pd.read_csv(FIX / "autoplot172_IATAME_precip_2024_2025.csv")
+    ref = ref[ref["binyear"] == year]
+    out, info = iem.running_total(daily, "precip", year, end=date(year, 10, 10))
+    # Compare by date (IEM's #172 export leaves out one day in leap years)
+    got = out.set_index("Date")["Observed"].reindex(pd.to_datetime(ref["day"]))
+    assert got.notna().all()
+    # IEM's accum counts each trace as 0.0001 and isn't rounded; ours counts traces as 0 and rounds to 0.01
+    assert got.to_numpy() == pytest.approx(ref["accum"].to_numpy(), abs=0.015)
+    assert info["season"] == str(year)
+
+
+def test_running_total_normal_and_extension(daily):
+    out, _ = iem.running_total(daily, "precip", 2025, end=date(2025, 6, 30), extend_normal=True)
+    assert len(out) == 365 and out["Observed"].iloc[181:].isna().all() and out["Observed"].iloc[:181].notna().all()
+    # Ames 1991-2020 annual precip is roughly 36 inches
+    assert 33 < out["Normal"].iloc[-1] < 39
+    assert out["Normal"].is_monotonic_increasing
+
+
+def test_running_total_season_crossing_new_year(daily):
+    out, info = iem.running_total(daily, "snow", 2024, start_month=7, start_day=1)
+    assert info["season"] == "2024-25"
+    assert out["Date"].iloc[0] == pd.Timestamp("2024-07-01") and out["Date"].iloc[-1] == pd.Timestamp("2025-06-30")
+
+
+def test_yearly_values_match_autoplot_107(daily):
+    ref = pd.read_csv(FIX / "autoplot107_IATAME_0101_1010.csv").set_index("yr")
+    for var, col in [("Total precipitation", "precip"), ("Total snowfall", "snow"), ("Average high", "avg_high_temp")]:
+        # No skipping here: IEM's table includes every year, whatever its missing days
+        out, _ = iem.yearly_values(daily, var, (1, 1), (10, 10), max_missing=366)
+        got = out.set_index(out["Year"].astype(int))["Value"]
+        common = got.index.intersection(ref.index)
+        assert len(common) > 120
+        assert got.loc[common].to_numpy() == pytest.approx(ref.loc[common, col].to_numpy(), abs=0.01)
+
+
+def test_yearly_values_skip_incomplete_years(daily):
+    out, info = iem.yearly_values(daily, "Total snowfall", (1, 1), (12, 31), max_missing=3)
+    assert "2026" not in out["Year"].tolist()  # current year isn't complete
+    assert info["skipped_years"]  # snowfall has years with missing days
+
+
+def test_yearly_values_season_crossing_year(daily):
+    out, _ = iem.yearly_values(daily, "Total snowfall", (12, 1), (2, 28))
+    assert out["Year"].iloc[-1].count("-") == 1
+
+
+def test_records_match_por_daily_climo(daily):
+    ref = pd.DataFrame(json.load(open(FIX / "por_daily_climo_IATAME.json"))["data"])
+    ref.index = pd.to_datetime(ref["date"]).dt.strftime("%m%d")
+    # IEM's climo table may include days after our download; drop the current year on both sides by comparing
+    # through 2025 only where the record wasn't set in 2026
+    climo = iem.daily_climatology(daily.loc[:"2025-12-31"])
+    ok = ~ref["high_max_years"].str.contains("2026") & ~ref["low_min_years"].str.contains("2026")
+    assert (climo.loc[ref.index[ok], "record_high"] == ref.loc[ok, "high_max"]).mean() > 0.99
+    assert (climo.loc[ref.index[ok], "record_low"] == ref.loc[ok, "low_min"]).mean() > 0.99
+
+
+def test_record_band_excludes_displayed_year(daily):
+    out, _ = iem.record_band(daily, date(2025, 7, 1), date(2025, 7, 31))
+    assert len(out) == 31
+    highs, lows = iem.record_counts(out)
+    # Records are "before this year", so a new record shows as actual >= prior record
+    assert (out.loc[highs, "Actual High"] >= out.loc[highs, "Record High"]).all()
+    assert (out["Normal High"] > out["Normal Low"]).all()
+    assert 80 < out["Normal High"].mean() < 90  # Ames July normal highs are mid-80s
+
+
+def test_feb_29(daily):
+    climo = iem.daily_climatology(daily)
+    assert "0229" in climo.index and pd.notna(climo.loc["0229", "normal_high"])
+    out, _ = iem.record_band(daily, date(2024, 2, 27), date(2024, 3, 2))
+    assert out["Normal High"].notna().all()
+
+
+def test_rank_and_ties():
+    df = pd.DataFrame({"Year": ["2001", "2002", "2003", "2004"], "Value": [5.0, 7.0, 7.0, 1.0]})
+    assert iem.rank_of(df, "2003") == (1, True, 4)
+    assert iem.rank_of(df, "2001") == (3, False, 4)
+    assert iem.rank_of(df, "2004", highest_first=False) == (1, False, 4)
+    assert iem.rank_of(df, "1999") is None
+    assert [iem.ordinal(n) for n in (1, 2, 3, 4, 11, 12, 13, 21, 22, 101)] == \
+        ["1st", "2nd", "3rd", "4th", "11th", "12th", "13th", "21st", "22nd", "101st"]
+
+
+@pytest.mark.parametrize("page,expected", [
+    ("https://mesonet.agron.iastate.edu/plotting/auto/?q=189&network=IACLIMATE&station=IATAME&var=total_precip",
+     "https://mesonet.agron.iastate.edu/plotting/auto/plot/189/network:IACLIMATE::station:IATAME::var:total_precip.csv"),
+    ("https://mesonet.agron.iastate.edu/plotting/auto/plot/107/network:IACLIMATE::station:IATAME::sday:0101.png",
+     "https://mesonet.agron.iastate.edu/plotting/auto/plot/107/network:IACLIMATE::station:IATAME::sday:0101.csv"),
+])
+def test_autoplot_url(page, expected):
+    assert iem.autoplot_csv_url(page)[1] == expected
+
+
+@pytest.mark.parametrize("bad", ["https://example.com/plotting/auto/?q=1", "https://mesonet.agron.iastate.edu/plotting/auto/"])
+def test_autoplot_url_rejects(bad):
+    with pytest.raises(iem.IEMError):
+        iem.autoplot_csv_url(bad)
+
+
+def test_network_errors_are_friendly(monkeypatch):
+    import requests
+
+    def boom(*a, **k):
+        raise requests.ConnectionError("down")
+    monkeypatch.setattr(iem.requests, "get", boom)
+    with pytest.raises(iem.IEMError, match="Couldn't get data"):
+        iem.fetch_stations("IA")

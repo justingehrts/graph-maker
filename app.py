@@ -1,43 +1,23 @@
 import streamlit as st
 import pandas as pd
-import matplotlib.pyplot as plt
-import matplotlib.font_manager as fm
 import io
 import json
-import os
 import re
-from datetime import datetime
+from calendar import month_name, monthrange
+from datetime import date, datetime, timedelta
+
+import charts
+import data_io as dio
+import iem
 
 st.set_page_config(page_title="Max Graph Maker", page_icon="📊", layout="wide")
 
-# --- 1. FONT LOADING ---
-path_reg = "ProximaNova-Regular.ttf"
-path_bold = "ProximaNova-Bold.ttf"
-
-@st.cache_resource
-def load_fonts(reg_path, bold_path):
-    """Return (regular, bold, using_fallback). FontProperties doesn't check the file, so check it here."""
-    if os.path.isfile(reg_path) and os.path.isfile(bold_path):
-        return fm.FontProperties(fname=reg_path), fm.FontProperties(fname=bold_path), False
-    return fm.FontProperties(family='sans-serif'), fm.FontProperties(family='sans-serif', weight='bold'), True
-
-prop_reg, prop_bold, font_fallback = load_fonts(path_reg, path_bold)
-
-# --- 2. SESSION STATE ---
-CORE_COLS = ["Label", "Value 1", "Value 2"]
-
-if 'main_df' not in st.session_state:
-    st.session_state.main_df = pd.DataFrame({
-        "Label": ["Mon", "Tue", "Wed", "Thu", "Fri"],
-        "Value 1": [75.0, 80.0, 50.0, 60.0, 75.0],
-        "Value 2": [65.0, 70.0, 10.0, 52.0, 37.0]
-    })
-
+# --- 1. SETTINGS & SESSION STATE ---
 # Chart settings: the master list for project files
 state_defaults = {
     'last_c1': '#045EA8', 'last_c2': '#C80000', 'show_v2': False,
     'chart_type': "Bar", 'width': 1920, 'height': 1080,
-    'text_choice': "White", 'x_sz': 28, 'y_sz': 28, 'y_step': 10.0,
+    'text_choice': "White", 'x_sz': 28, 'y_sz': 28, 'y_step': 10.0, 'y_auto': True,
     'bar_gap': 0.22, 'y_start_zero': True, 'x_bold': True, 'y_bold': True,
     'show_values': False, 'value_sz': 24, 'value_bold': True,
     'highlight_idx': "None", 'highlight_color': '#FFD700',
@@ -45,32 +25,72 @@ state_defaults = {
     'x_rot': 0,
     'num_decimals': "Auto", 'num_prefix': "", 'num_suffix': "", 'num_thousands': False, 'axis_units': False,
     'grid_show': True, 'grid_color': '#808080', 'grid_alpha': 0.3, 'grid_width': 0.8, 'grid_style': "Solid",
+    'date_labels': "Auto",
+    # Running Total vs Normal
+    'rt_input': "Running totals", 'rt_obs_color': '#3FA9F5', 'rt_norm_color': '#FFFFFF',
+    'rt_surplus_color': '#2E9E4F', 'rt_deficit_color': '#B5651D', 'rt_fill_alpha': 0.35, 'rt_callout': False,
+    # Record & Normal Band
+    'rb_style': "Lines", 'rb_high_color': '#E8483B', 'rb_low_color': '#3FA9F5', 'rb_normal_color': '#8A94A6',
+    'rb_record_color': '#4A5260', 'rb_band_alpha': 0.45, 'rb_mark_records': True, 'rb_mark_color': '#FFD700',
+    'rb_callout': False,
+    # Year Ranking
+    'yr_order': "Highest first", 'yr_style': "Bars", 'yr_top_n': 0, 'yr_word': "highest", 'yr_highlight': "",
+    'yr_color': '#045EA8', 'yr_callout': False,
+}
+
+# Station-data (IEM) panel choices; saved with projects so the data can be fetched again
+TODAY = date.today()
+RT_STARTS = {"Jan 1": (1, 1), "Jul 1": (7, 1), "Oct 1": (10, 1)}
+SEASONS = {"Winter (Dec–Feb)": ((12, 1), (2, 28)), "Spring (Mar–May)": ((3, 1), (5, 31)),
+           "Summer (Jun–Aug)": ((6, 1), (8, 31)), "Fall (Sep–Nov)": ((9, 1), (11, 30))}
+YR_PERIODS = ["Year to date", "Full year", "Month", "Season", "Custom dates"]
+NORMAL_PERIODS = {"1991–2020": (1991, 2020), "Full record": None}
+MONTHS = list(month_name)[1:]
+iem_defaults = {
+    'iem_state': "IA", 'iem_station': None, 'normal_period': "1991–2020",
+    'rt_var': "Rain", 'rt_start': "Jan 1", 'rt_year': TODAY.year, 'rt_to_latest': True, 'rt_end': TODAY,
+    'rt_extend': False,
+    'rb_mode': "Month", 'rb_month': MONTHS[TODAY.month - 1], 'rb_year': TODAY.year,
+    'rb_range': (TODAY - timedelta(days=30), TODAY - timedelta(days=1)),
+    'yr_var': "Total precipitation", 'yr_period': "Year to date", 'yr_month': MONTHS[TODAY.month - 1],
+    'yr_season': list(SEASONS)[0], 'yr_custom': (date(TODAY.year, 1, 1), TODAY), 'yr_max_missing': 3,
 }
 # Internal counters, bumped to reset the data editor / uploaders; never saved to project files
-internal_defaults = {'editor_key': 0, 'csv_uploader_key': 0, 'json_uploader_key': 0}
+internal_defaults = {'csv_uploader_key': 0, 'json_uploader_key': 0}
 
-for key, val in {**state_defaults, **internal_defaults}.items():
+for key, val in {**state_defaults, **iem_defaults, **internal_defaults}.items():
     if key not in st.session_state: st.session_state[key] = val
-for key in state_defaults:
+for key in {**state_defaults, **iem_defaults}:
     # Re-assigning keeps widget-bound values alive while their widget is hidden (e.g. Line-only controls in Bar mode)
     st.session_state[key] = st.session_state[key]
+if 'datasets' not in st.session_state:
+    # One table per layout, so switching chart types never loses data
+    st.session_state.datasets = {k: dio.sample_data(k) for k in dio.SCHEMAS}
+    st.session_state.editor_keys = {k: 0 for k in dio.SCHEMAS}
+    st.session_state.source_notes = {k: "Sample data" for k in dio.SCHEMAS}
+    st.session_state.autoplot_mappings = {}
 
 # Allowed values for every widget-bound setting; shared by the widgets and project loading
 TEXT_COLORS = {"White": "white", "Black": "black", "Navy": "#022E67"}
-MARKER_SYMBOLS = ["Circle", "Square", "Triangle", "Diamond"]
-GRID_STYLES = {"Solid": "-", "Dashed": "--", "Dotted": ":"}
-CHOICES = {'chart_type': ["Bar", "Line"], 'text_choice': list(TEXT_COLORS), 'marker_symbol': MARKER_SYMBOLS,
-           'num_decimals': ["Auto", "0", "1", "2", "3"], 'grid_style': list(GRID_STYLES)}
+MARKER_SYMBOLS = list(charts.MARKERS)
+GRID_STYLES = charts.GRID_STYLES
+CHOICES = {'chart_type': dio.CHART_TYPES, 'text_choice': list(TEXT_COLORS), 'marker_symbol': MARKER_SYMBOLS,
+           'num_decimals': ["Auto", "0", "1", "2", "3"], 'grid_style': list(GRID_STYLES),
+           'date_labels': ["Auto", "Month names", "Month + day", "Day numbers"],
+           'rt_input': ["Running totals", "Daily amounts"], 'rb_style': ["Lines", "Bars"],
+           'yr_order': ["Highest first", "Lowest first"], 'yr_style': ["Bars", "Dots"]}
 RANGES = {
     'width': (100, 7680), 'height': (100, 7680), 'x_sz': (10, 100), 'y_sz': (10, 100),
     'value_sz': (5, 80), 'line_width': (1, 25), 'marker_size': (1, 50), 'x_rot': (-90, 90),
     'bar_gap': (0.0, 0.9), 'y_step': (0.01, 1e9), 'grid_alpha': (0.0, 1.0), 'grid_width': (0.5, 8.0),
+    'rt_fill_alpha': (0.0, 1.0), 'rb_band_alpha': (0.0, 1.0), 'yr_top_n': (0, 500),
 }
-COLOR_KEYS = ['last_c1', 'last_c2', 'highlight_color', 'grid_color']
-TEXT_KEYS = {'num_prefix': 8, 'num_suffix': 8}  # Free-text settings and their max length
+COLOR_KEYS = ['last_c1', 'last_c2', 'highlight_color', 'grid_color', 'rt_obs_color', 'rt_norm_color',
+              'rt_surplus_color', 'rt_deficit_color', 'rb_high_color', 'rb_low_color', 'rb_normal_color',
+              'rb_record_color', 'rb_mark_color', 'yr_color']
+TEXT_KEYS = {'num_prefix': 8, 'num_suffix': 8, 'yr_word': 20, 'yr_highlight': 12}  # Free-text settings and their max length
 # Brand presets for the series colors: name -> hex
 COLOR_PRESETS = {"Navy": "#022E67", "Blue": "#045EA8", "Red": "#C80000", "White": "#FFFFFF"}
-MAX_Y_TICKS = 50
 
 def sanitize_setting(key, val):
     """Return a value safe to put into the widget for `key`, or None if it can't be used."""
@@ -90,88 +110,89 @@ def sanitize_setting(key, val):
         return val if isinstance(val, bool) else None
     return None
 
-def normalize_df(df):
-    """Coerce any table into Label (text) + Value 1/Value 2 (numbers). Returns (df, count of non-numeric cells zeroed)."""
-    df = df.copy()
-    for col in CORE_COLS:
-        if col not in df.columns: df[col] = "" if col == "Label" else 0.0
-    df["Label"] = df["Label"].fillna("").astype(str).str.replace(r' 00:00:00$', '', regex=True)
-    bad_cells = 0
-    for col in ["Value 1", "Value 2"]:
-        raw = df[col]
-        if not pd.api.types.is_numeric_dtype(raw):
-            # Strip units and separators people paste along with numbers, e.g. 75°, 1,234, 0.5"
-            raw = raw.astype(str).str.replace('\u2212', '-').str.replace(r'[^0-9.\-]', '', regex=True)
-            raw = raw.mask((raw == '') | df[col].isna())
-        nums = pd.to_numeric(raw, errors='coerce')
-        bad_cells += int((nums.isna() & df[col].notna()).sum())
-        df[col] = nums.fillna(0.0).astype(float)
-    return df[CORE_COLS].reset_index(drop=True), bad_cells
+def active_key():
+    return dio.schema_key(st.session_state.chart_type)
 
-def format_number(v, s, units=True):
-    """Format a value per the Number Format settings; `units` adds the prefix/suffix."""
-    sep = ',' if s['num_thousands'] else ''
-    if s['num_decimals'] == "Auto":
-        txt = f"{v:{sep}.3f}".rstrip('0').rstrip('.')
-    else:
-        txt = f"{v:{sep}.{int(s['num_decimals'])}f}"
-    if not txt.lstrip('-').strip('0.,'): txt = txt.lstrip('-')  # No "-0" from rounding
-    txt = txt.replace('-', '\u2212')  # Typographic minus sign
-    return f"{s['num_prefix']}{txt}{s['num_suffix']}" if units else txt
+# --- 2. CACHED DATA ACCESS ---
+@st.cache_data(ttl=24 * 3600, show_spinner="Loading station list from IEM…")
+def load_stations(state):
+    return iem.fetch_stations(state)
+
+@st.cache_data(ttl=6 * 3600, show_spinner="Downloading the station's daily history from IEM…")
+def load_daily(station, state):
+    return iem.fetch_daily(station, state)
+
+@st.cache_data(ttl=6 * 3600, show_spinner="Getting the autoplot data from IEM…")
+def load_autoplot(csv_url):
+    num = int(re.search(r"/plot/(\d+)/", csv_url).group(1))
+    meta = iem.autoplot_meta(num)
+    if not meta["data"]:
+        raise iem.IEMError(f"Autoplot #{num} ({meta['title']}) doesn't offer its data for download.")
+    return meta["title"], iem.fetch_autoplot_csv(csv_url)
+
+@st.cache_data(max_entries=20, show_spinner=False)
+def render_chart(df, s, txt_col):
+    return charts.render(df, s, txt_col)
 
 # --- 3. CALLBACKS ---
 def set_preset_color(target_key, color_hex):
     """Native callback to update color instantly without double-reruns."""
     st.session_state[target_key] = color_hex
 
-def load_table(new_df):
-    """Replace the chart data with a table whose first 3 columns are label, value 1, value 2. Returns False if unusable."""
-    cols = list(new_df.columns)
-    if len(cols) < 2:
-        st.error("The data needs at least 2 columns: labels in the first column, then 1–2 columns of numbers.")
+def store_table(key, df, note, notes=(), ignored=()):
+    """Replace the `key` table, reset its editor and say what happened."""
+    st.session_state.datasets[key] = df
+    st.session_state.editor_keys[key] += 1
+    st.session_state.source_notes[key] = note
+    if key == "Running Total vs Normal":
+        # Daily amounts (e.g. a NOWData month) go up and down; running totals never go down
+        obs = df["Observed"].dropna()
+        st.session_state.rt_input = "Daily amounts" if (obs.diff().dropna() < 0).any() else "Running totals"
+    extra = list(notes) + ([f"ignored columns: {', '.join(ignored)}"] if ignored else [])
+    rows = f"{len(df)} row{'s' if len(df) != 1 else ''}"
+    st.toast(f"Loaded {rows}" + (f" ({'; '.join(extra)})" if extra else ""))
+
+def load_raw(raw, note):
+    """Map a raw table (paste or file) onto the current chart type's columns. Returns False if unusable."""
+    key = active_key()
+    if raw.shape[1] < 2:
+        st.error(f"The data needs at least 2 columns. Expected: {', '.join(dio.columns(key))}.")
         return False
-    new_df = new_df.rename(columns=dict(zip(cols[:3], CORE_COLS)))
-    st.session_state.main_df, bad_cells = normalize_df(new_df)
-    st.session_state.editor_key += 1
-    notes = []
-    if len(cols) > 3: notes.append(f"ignored extra columns: {', '.join(map(str, cols[3:]))}")
-    if bad_cells: notes.append(f"{bad_cells} non-numeric value{'s' if bad_cells != 1 else ''} set to 0")
-    st.toast(f"Imported {len(new_df)} row{'s' if len(new_df) != 1 else ''}" + (f" ({'; '.join(notes)})" if notes else ""))
+    mapped, ignored = dio.map_columns(raw, key)
+    df, notes = dio.normalize(mapped, key)
+    if df.empty:
+        st.error(f"No rows of data found. Expected columns: {', '.join(dio.columns(key))}.")
+        return False
+    store_table(key, df, note, notes, ignored)
     return True
 
 def handle_upload():
     f = st.session_state[f"csv_uploader_{st.session_state.csv_uploader_key}"]
     if not f: return
     try:
-        new_df = pd.read_csv(f) if f.name.lower().endswith('.csv') else pd.read_excel(f)
+        if f.name.lower().endswith('.csv'):
+            text = f.getvalue().decode("utf-8-sig", errors="replace")
+            text = "\n".join(line for line in text.splitlines() if not line.startswith("#"))  # IEM comment lines
+            raw = pd.read_csv(io.StringIO(text), dtype=str, keep_default_na=False)
+        else:
+            raw = pd.read_excel(f)
     except Exception as e:
         st.error(f"Couldn't read '{f.name}'. Make sure it's a valid CSV or Excel (.xlsx) file. Details: {e}")
         return
-    if load_table(new_df):
+    if load_raw(raw, f"File: {f.name}"):
         st.session_state.csv_uploader_key += 1  # Clear the uploader so the same file can be imported again
-
-def parse_pasted(text):
-    """Parse cells copied from Excel/Sheets (tab-separated) or CSV text. A header row is detected and dropped."""
-    sep = '\t' if '\t' in text else (';' if ';' in text and ',' not in text else ',')
-    df = pd.read_csv(io.StringIO(text.strip()), sep=sep, header=None, dtype=str, skip_blank_lines=True)
-    if len(df) > 1 and df.shape[1] > 1:
-        # The first row is a header if its first value cell isn't a number
-        first_value = str(df.iat[0, 1]).strip()
-        if normalize_df(pd.DataFrame({"Value 1": [first_value]}))[1]:
-            df = df.iloc[1:]
-    return df
 
 def handle_paste():
     text = st.session_state.paste_text
     if not text.strip():
-        st.error("Paste some cells first: labels in the first column, then 1–2 columns of numbers.")
+        st.error("Paste some cells first.")
         return
     try:
-        new_df = parse_pasted(text)
+        raw = dio.parse_pasted(text)
     except Exception as e:
         st.error(f"Couldn't read the pasted data. Details: {e}")
         return
-    if load_table(new_df):
+    if load_raw(raw, "Pasted data"):
         st.session_state.paste_text = ""
 
 def handle_json():
@@ -179,130 +200,261 @@ def handle_json():
     if not f: return
     try:
         p = json.load(f)
-        df_json, _ = normalize_df(pd.DataFrame(p['data']))
+        if 'datasets' in p:  # Version 2: one table per layout
+            tables = {k: dio.normalize(pd.DataFrame(p['datasets'][k]), k)[0] for k in dio.SCHEMAS if k in p['datasets']}
+        else:  # Version 1: a single Label / Value 1 / Value 2 table
+            tables = {"Basic": dio.normalize(pd.DataFrame(p['data']), "Basic")[0]}
     except Exception as e:
         st.error(f"Couldn't load project file '{f.name}'. It may be corrupted. Details: {e}")
         return
-    st.session_state.main_df = df_json
-    if isinstance(p.get('settings'), dict):
-        # Only load known keys with valid values; anything else keeps its current setting
-        for k, v in p['settings'].items():
-            if k not in state_defaults: continue
-            safe_val = sanitize_setting(k, v)
-            if safe_val is not None: st.session_state[k] = safe_val
-    st.session_state.editor_key += 1
+    for k, df in tables.items():
+        st.session_state.datasets[k] = df
+        st.session_state.editor_keys[k] += 1
+        st.session_state.source_notes[k] = str(p.get('source_notes', {}).get(k, f"Project: {f.name}"))[:200]
+    settings = p.get('settings') if isinstance(p.get('settings'), dict) else {}
+    if 'y_step' in settings and 'y_auto' not in settings:
+        settings['y_auto'] = False  # Older projects chose their Y interval by hand
+    # Only load known keys with valid values; anything else keeps its current setting
+    for k, v in settings.items():
+        if k not in state_defaults: continue
+        safe_val = sanitize_setting(k, v)
+        if safe_val is not None: st.session_state[k] = safe_val
+    for k, v in (p.get('iem_query') or {}).items():
+        if k in ('iem_state', 'normal_period', 'rt_var', 'rt_start', 'rb_mode', 'rb_month', 'yr_var', 'yr_period',
+                 'yr_month', 'yr_season') and isinstance(v, str) and v in iem_choices(k):
+            st.session_state[k] = v
+        elif k == 'iem_station' and isinstance(v, str) and re.fullmatch(r"[A-Z0-9]{3,10}", v):
+            st.session_state[k] = v
+    if isinstance(p.get('autoplot_mappings'), dict):
+        st.session_state.autoplot_mappings.update({str(n): {str(a): str(b) for a, b in m.items()}
+                                                   for n, m in p['autoplot_mappings'].items() if isinstance(m, dict)})
     st.session_state.json_uploader_key += 1
     st.toast(f"Loaded project '{f.name}'")
 
-# --- 4. CHART RENDERING ---
-def y_limits(values, start_zero):
-    """Axis range covering all values (positive or negative) with headroom for data labels."""
-    lo, hi = (min(values), max(values)) if values else (0.0, 10.0)
-    if start_zero: lo, hi = min(lo, 0.0), max(hi, 0.0)
-    span = (hi - lo) or max(abs(hi), 1.0)
-    top = hi + span * (0.25 if hi > 0 else 0.1)
-    bottom = 0.0 if (start_zero and lo == 0) else lo - span * (0.25 if lo < 0 else 0.1)
-    return bottom, top
+def commit_table():
+    """Keep the on-screen table's edits when switching chart types (the editor forgets them once hidden)."""
+    k, df = st.session_state.get('_current_table', (None, None))
+    if k is not None:
+        st.session_state.datasets[k] = df
+        st.session_state.editor_keys[k] += 1
 
-@st.cache_data(max_entries=20, show_spinner=False)
-def render_chart(df, s, txt_col):
-    """Draw the chart for data `df` and settings dict `s`. Returns (png bytes, Y interval actually used)."""
-    fig, ax = plt.subplots(figsize=(s['width'] / 100, s['height'] / 100), dpi=100)
-    fig.patch.set_alpha(0)
-    ax.set_facecolor('none')
+def iem_choices(key):
+    return {'iem_state': iem.STATES, 'normal_period': list(NORMAL_PERIODS), 'rt_var': ["Rain", "Snow"],
+            'rt_start': list(RT_STARTS), 'rb_mode': ["Month", "Date range"], 'rb_month': MONTHS,
+            'yr_var': list(iem.RANK_VARS), 'yr_period': YR_PERIODS, 'yr_month': MONTHS,
+            'yr_season': list(SEASONS)}[key]
 
-    labels = df["Label"].tolist()
-    v1 = df["Value 1"].tolist()
-    v2 = df["Value 2"].tolist() if s['show_v2'] else []
-    x = list(range(len(labels)))
-    val_font = prop_bold if s['value_bold'] else prop_reg
-    label_kw = dict(color=txt_col, fontproperties=val_font, fontsize=s['value_sz'])
+def unit_defaults(kind):
+    """Number format suited to the data that was just loaded."""
+    fmt = {"precip": ('"', "2"), "snow": ('"', "1"), "temp": ("°", "0")}[kind]
+    st.session_state.num_suffix, st.session_state.num_decimals = fmt
 
-    # Highlight applies to series 1 at the chosen index
-    c1 = [s['last_c1']] * len(v1)
-    if s['highlight_idx'] != "None" and s['highlight_idx'] < len(c1):
-        c1[s['highlight_idx']] = s['highlight_color']
-
-    y_lo, y_hi = y_limits(v1 + v2, s['y_start_zero'])
-    ax.set_ylim(y_lo, y_hi)
-
-    if s['chart_type'] == "Bar":
-        width_val = max(0.1, 0.8 - s['bar_gap']) # Hard floor applied
-        if v2:
-            bars = [ax.bar([i - width_val/4 for i in x], v1, width=width_val/2, color=c1, zorder=2),
-                    ax.bar([i + width_val/4 for i in x], v2, width=width_val/2, color=s['last_c2'], zorder=2)]
+def build_from_iem(daily, station_label):
+    """Compute the active preset's table from the station's daily record."""
+    ss = st.session_state
+    ct = ss.chart_type
+    normal_years = NORMAL_PERIODS[ss.normal_period]
+    normals = "normals 1991–2020" if normal_years else "normals from the full record"
+    span = f"{daily.index.min().year}–{daily.index.max().year}"
+    try:
+        if ct == "Running Total vs Normal":
+            var = "precip" if ss.rt_var == "Rain" else "snow"
+            m, d = RT_STARTS[ss.rt_start]
+            df, info = iem.running_total(daily, var, ss.rt_year, m, d, None if ss.rt_to_latest else ss.rt_end,
+                                         normal_years, ss.rt_extend)
+            unit_defaults(var)
+            ss.y_start_zero = True
+            notes = [f"{info['missing_days']} missing days counted as 0"] if info['missing_days'] else []
+            note = f"IEM · {station_label} · {ss.rt_var.lower()} {info['season']} · {normals}"
+        elif ct == "Record & Normal Band":
+            if ss.rb_mode == "Month":
+                mi = MONTHS.index(ss.rb_month) + 1
+                start, end = date(ss.rb_year, mi, 1), date(ss.rb_year, mi, monthrange(ss.rb_year, mi)[1])
+            else:
+                start, end = ss.rb_range if len(ss.rb_range) == 2 else (ss.rb_range[0], ss.rb_range[0])
+            end = min(end, daily.index.max().date())
+            if end < start:
+                st.error("There's no data for that period yet.")
+                return
+            df, info = iem.record_band(daily, start, end, normal_years)
+            unit_defaults("temp")
+            notes = [f"{info['missing_days']} days with missing temperatures"] if info['missing_days'] else []
+            shown = "–".join(sorted({str(start.year), str(end.year)}))
+            note = f"IEM · {station_label} · records {span}, not counting {shown} · {normals}"
         else:
-            bars = [ax.bar(x, v1, width=width_val, color=c1, zorder=2)]
-        if s['show_values']:
-            for r in bars: ax.bar_label(r, labels=[format_number(v, s) for v in r.datavalues], padding=5, **label_kw)
-    else:
-        m_sym = {"Circle": "o", "Square": "s", "Triangle": "^", "Diamond": "D"}[s['marker_symbol']]
-        series = [(v1, s['last_c1'], c1)] + ([(v2, s['last_c2'], [s['last_c2']] * len(v2))] if v2 else [])
-        for vals, line_color, marker_colors in series:
-            ax.plot(x, vals, color=line_color, linewidth=s['line_width'], zorder=2)
-            ax.scatter(x, vals, color=marker_colors, s=s['marker_size']**2, marker=m_sym, zorder=3)
-            if s['show_values']:
-                offset = (y_hi - y_lo) * 0.03
-                for i, v in enumerate(vals):
-                    # Labels sit above positive points and below negative ones
-                    ax.text(i, v + offset if v >= 0 else v - offset, format_number(v, s), ha='center',
-                            va='bottom' if v >= 0 else 'top', zorder=5, **label_kw)
+            start_md, end_md, label = ranking_window(daily)
+            df, info = iem.yearly_values(daily, ss.yr_var, start_md, end_md, int(ss.yr_max_missing))
+            col = iem.RANK_VARS[ss.yr_var][0]
+            unit_defaults("temp" if col in ("high", "low", "avg") else col)
+            if col in ("high", "low", "avg"): ss.num_decimals = "1"
+            ss.y_start_zero = col not in ("high", "low", "avg")
+            words = {"precip": ("wettest", "driest"), "snow": ("snowiest", "least snowy")}.get(col, ("warmest", "coldest"))
+            ss.yr_word = words[ss.yr_order != "Highest first"]
+            ss.yr_highlight = ""
+            skipped = info['skipped_years']
+            notes = [f"left out {len(skipped)} year{'s' if len(skipped) != 1 else ''} with more than "
+                     f"{ss.yr_max_missing} missing days"] if skipped else []
+            note = f"IEM · {station_label} · {ss.yr_var.lower()}, {label} · {span}"
+            if skipped and (df.empty or skipped[-1] > df["Year"].iloc[-1]):
+                # The most recent period is the one people usually want; never drop it silently
+                note += (f" · ⚠️ {skipped[-1]} is left out: more than {ss.yr_max_missing} days of missing data "
+                         "(raise the allowance under the station data to include it)")
+    except iem.IEMError as e:
+        st.error(str(e))
+        return
+    store_table(dio.schema_key(ct), df, note, notes)
 
-    # --- Axis lockdown ---
-    ax.set_xticks(x)
-    ax.set_xticklabels(labels, fontproperties=prop_bold if s['x_bold'] else prop_reg, fontsize=s['x_sz'], color=txt_col, rotation=s['x_rot'])
-    ax.tick_params(axis='x', colors=txt_col, width=3, length=8, zorder=4)
+def ranking_window(daily):
+    """(start (M, D), end (M, D), label) for the Year Ranking period choice."""
+    ss = st.session_state
+    last = daily.index.max()
+    if ss.yr_period == "Year to date":
+        return (1, 1), (last.month, last.day), f"Jan 1–{last:%b} {last.day}"
+    if ss.yr_period == "Full year":
+        return (1, 1), (12, 31), "full year"
+    if ss.yr_period == "Month":
+        mi = MONTHS.index(ss.yr_month) + 1
+        return (mi, 1), (mi, 28 if mi == 2 else monthrange(2001, mi)[1]), ss.yr_month
+    if ss.yr_period == "Season":
+        s, e = SEASONS[ss.yr_season]
+        return s, e, ss.yr_season.split(" (")[0].lower()
+    start, end = ss.yr_custom if len(ss.yr_custom) == 2 else (ss.yr_custom[0], ss.yr_custom[0])
+    end_md = (2, 28) if (end.month, end.day) == (2, 29) else (end.month, end.day)
+    start_md = (3, 1) if (start.month, start.day) == (2, 29) else (start.month, start.day)
+    return start_md, end_md, f"{start:%b} {start.day}–{end:%b} {end.day}"
 
-    # Widen the interval if it would draw an unreadable (or app-freezing) number of ticks
-    y_step = max(s['y_step'], (y_hi - y_lo) / MAX_Y_TICKS)
-    ax.yaxis.set_major_locator(plt.MultipleLocator(y_step))
-    ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: format_number(v, s, units=s['axis_units'])))
-    ax.tick_params(axis='y', colors=txt_col, width=3, length=8, zorder=4)
+def apply_autoplot(num, title, raw, targets):
+    key = active_key()
+    mapping = {t: st.session_state[f"ap_map_{num}_{t}"] for t in targets}
+    chosen = {t: src for t, src in mapping.items() if src != "(none)"}
+    if len(chosen) < 2:
+        st.error("Pick a column for at least the first two fields.")
+        return
+    df, notes = dio.normalize(pd.DataFrame({t: raw[src] for t, src in chosen.items()}), key)
+    st.session_state.autoplot_mappings[str(num)] = chosen
+    store_table(key, df, f"IEM autoplot #{num}: {title}", notes)
 
-    for tick in ax.get_yticklabels():
-        tick.set_fontproperties(prop_bold if s['y_bold'] else prop_reg)
-        tick.set_fontsize(s['y_sz'])
-    for tick in ax.get_xticklabels():
-        tick.set_fontproperties(prop_bold if s['x_bold'] else prop_reg)
-        tick.set_fontsize(s['x_sz'])
-
-    ax.spines['top'].set_visible(False)
-    ax.spines['right'].set_visible(False)
-    for side in ['left', 'bottom']:
-        ax.spines[side].set_linewidth(4); ax.spines[side].set_color(txt_col); ax.spines[side].set_zorder(4)
-    if y_lo < 0 < y_hi:
-        ax.axhline(0, color=txt_col, linewidth=2, zorder=4)  # Baseline when the data crosses zero
-    if s['grid_show']:
-        ax.grid(True, axis='y', color=s['grid_color'], alpha=s['grid_alpha'], linewidth=s['grid_width'],
-                linestyle=GRID_STYLES[s['grid_style']], zorder=1)
-    ax.set_axisbelow(True)
-
-    fig.tight_layout()
-    buf = io.BytesIO()
-    fig.savefig(buf, format="png", transparent=True)
-    plt.close(fig)
-    return buf.getvalue(), y_step
-
-# --- 5. DATA INPUT ---
-# Rendered before the sidebar code so the sidebar can use the current row count
+# --- 4. DATA INPUT ---
+ct = st.session_state.chart_type
+key = active_key()
+is_preset = ct in dio.PRESET_TYPES
 st.subheader("Data Input")
+
+if is_preset:
+    st.caption(f"**{ct}:** {dio.DESCRIPTIONS[ct]}")
+    with st.expander("🛰️ Station data from the Iowa Environmental Mesonet (IEM)", expanded=True):
+        cs, cn = st.columns([1, 3])
+        cs.selectbox("State", iem.STATES, key='iem_state')
+        stations, daily = None, None
+        try:
+            stations = load_stations(st.session_state.iem_state)
+        except iem.IEMError as e:
+            st.error(str(e))
+        if stations is not None:
+            ids = stations["id"].tolist()
+            labels = dict(zip(stations["id"], stations["label"]))
+            if st.session_state.iem_station not in ids: st.session_state.iem_station = None
+            cn.selectbox("Station", ids, key='iem_station', format_func=lambda i: labels.get(i, i),
+                         placeholder="Choose a station (type to search)",
+                         help="'Area' stations are the long-term threaded records for a city.")
+        if st.session_state.iem_station:
+            try:
+                daily = load_daily(st.session_state.iem_station, st.session_state.iem_state)
+            except iem.IEMError as e:
+                st.error(str(e))
+        if daily is not None and not daily.empty:
+            first, last = daily.index.min().date(), daily.index.max().date()
+            station_label = f"{daily.attrs.get('station_name') or st.session_state.iem_station} ({st.session_state.iem_station})"
+            st.caption(f"{station_label}: daily data {first:%b} {first.day}, {first.year} – {last:%b} {last.day}, {last.year}")
+            years = list(range(last.year, first.year - 1, -1))
+            ss = st.session_state
+            if ct == "Running Total vs Normal":
+                c1, c2, c3 = st.columns(3)
+                c1.radio("Variable", ["Rain", "Snow"], key='rt_var', horizontal=True)
+                c2.selectbox("Season starts", list(RT_STARTS), key='rt_start',
+                             help="Snow seasons usually start Jul 1; water years Oct 1.")
+                if ss.rt_year not in years: ss.rt_year = years[0]
+                start_month = RT_STARTS[ss.rt_start][0]
+                c3.selectbox("Season", years, key='rt_year', format_func=lambda y: iem.season_label(y, start_month))
+                c1, c2, c3 = st.columns(3)
+                c1.checkbox("Through the latest data", key='rt_to_latest')
+                if not ss.rt_to_latest:
+                    ss.rt_end = min(max(ss.rt_end, first), last)
+                    c2.date_input("Through", key='rt_end', min_value=first, max_value=last)
+                c3.checkbox("Show the normal for the rest of the season", key='rt_extend')
+                st.radio("Normal period", list(NORMAL_PERIODS), key='normal_period', horizontal=True)
+            elif ct == "Record & Normal Band":
+                c1, c2, c3 = st.columns(3)
+                c1.radio("Period", ["Month", "Date range"], key='rb_mode', horizontal=True)
+                if ss.rb_mode == "Month":
+                    c2.selectbox("Month", MONTHS, key='rb_month')
+                    if ss.rb_year not in years: ss.rb_year = years[0]
+                    c3.selectbox("Year", years, key='rb_year')
+                else:
+                    ss.rb_range = tuple(min(max(d, first), last) for d in ss.rb_range)
+                    c2.date_input("Dates", key='rb_range', min_value=first, max_value=last)
+                st.radio("Normal period", list(NORMAL_PERIODS), key='normal_period', horizontal=True)
+            else:
+                c1, c2, c3 = st.columns(3)
+                c1.selectbox("Variable", list(iem.RANK_VARS), key='yr_var')
+                c2.selectbox("Period", YR_PERIODS, key='yr_period')
+                if ss.yr_period == "Month":
+                    c3.selectbox("Month", MONTHS, key='yr_month')
+                elif ss.yr_period == "Season":
+                    c3.selectbox("Season", list(SEASONS), key='yr_season')
+                elif ss.yr_period == "Custom dates":
+                    c3.date_input("Dates (the year is ignored)", key='yr_custom')
+                st.number_input("Leave out years missing more than this many days", 0, 60, key='yr_max_missing')
+            st.button("📥 Use this station data", type="primary", on_click=build_from_iem, args=(daily, station_label))
+
 c1, c2 = st.columns(2)
-with c1: st.file_uploader("📂 Import CSV/Excel", type=['csv','xlsx'], key=f"csv_uploader_{st.session_state.csv_uploader_key}", on_change=handle_upload)
+with c1: st.file_uploader("📂 Import CSV/Excel", type=['csv', 'xlsx'], key=f"csv_uploader_{st.session_state.csv_uploader_key}", on_change=handle_upload)
 with c2: st.file_uploader("💾 Load Project", type=['json'], key=f"json_uploader_{st.session_state.json_uploader_key}", on_change=handle_json)
-with st.expander("📋 Paste from Excel / Google Sheets"):
+with st.expander("📋 Paste from Excel / Google Sheets / xmACIS / NOWData"):
     st.text_area("Paste cells here", key="paste_text", height=150,
-                 placeholder="Copy the cells (labels in the first column, then 1–2 columns of numbers) and paste them here.\nA header row is optional.")
+                 placeholder=f"Expected columns: {', '.join(dio.columns(key))}.\nA header row is optional; "
+                             "T (trace) and M (missing) are understood.")
     st.button("Use pasted data", on_click=handle_paste)
+with st.expander("🌐 Import from an IEM autoplot"):
+    st.caption("Make a plot at [mesonet.agron.iastate.edu/plotting/auto](https://mesonet.agron.iastate.edu/plotting/auto/), "
+               "copy the page address, and paste it here to restyle its data for Max.")
+    ap_url = st.text_input("Autoplot page link", key="ap_url", placeholder="https://mesonet.agron.iastate.edu/plotting/auto/?q=189&…")
+    if ap_url.strip():
+        try:
+            num, csv_url = iem.autoplot_csv_url(ap_url)
+            title, raw = load_autoplot(csv_url)
+        except iem.IEMError as e:
+            st.error(str(e))
+        else:
+            st.caption(f"**#{num}: {title}** · {len(raw)} rows · columns: {', '.join(map(str, raw.columns))}")
+            st.dataframe(raw.head(5), hide_index=True)
+            targets = dio.columns(key)
+            saved = st.session_state.autoplot_mappings.get(str(num), {})
+            options = ["(none)"] + [str(c) for c in raw.columns]
+            guess = dio.guess_mapping(options[1:], key)  # By header name (presets) or by position (basic)
+            for col, target in zip(st.columns(len(targets)), targets):
+                default = saved.get(target)
+                if default not in options: default = guess.get(target, "(none)")
+                col.selectbox(target, options, index=options.index(default), key=f"ap_map_{num}_{target}")
+            st.button("Use this autoplot data", on_click=apply_autoplot, args=(num, title, raw.rename(columns=str), targets))
 
-# main_df is only the starting data; the editor keeps the edits itself, so its output is never fed back in
+cap, tmpl = st.columns([4, 1])
+cap.caption(f"Columns: {', '.join(dio.columns(key))} · Source: {st.session_state.source_notes[key]}")
+tmpl.download_button("Blank template (CSV)", dio.template_csv(key), file_name=f"{key.lower().replace(' ', '_').replace('&', 'and')}_template.csv",
+                     mime="text/csv", width="stretch")
+
+column_config = {}
+for col, kind in dio.SCHEMAS[key]:
+    column_config[col] = (st.column_config.DateColumn(col, format="YYYY-MM-DD") if kind == "date"
+                          else st.column_config.NumberColumn(col) if kind == "num" else st.column_config.TextColumn(col))
+# The stored table is only the starting data; the editor keeps the edits itself, so its output is never fed back in
 df_input = st.data_editor(
-    st.session_state.main_df, num_rows="dynamic", width="stretch", key=f"editor_{st.session_state.editor_key}", hide_index=False,
-    column_config={"Label": st.column_config.TextColumn("Label"),
-                   "Value 1": st.column_config.NumberColumn("Value 1"),
-                   "Value 2": st.column_config.NumberColumn("Value 2")})
-df_clean, _ = normalize_df(df_input)
+    st.session_state.datasets[key], num_rows="dynamic", width="stretch", hide_index=is_preset,
+    key=f"editor_{key}_{st.session_state.editor_keys[key]}", column_config=column_config)
+df_clean, _ = dio.normalize(df_input, key)
+st.session_state._current_table = (key, df_input)
 
-# --- 6. UI / SIDEBAR ---
+# --- 5. UI / SIDEBAR ---
 def highlight_option_label(i, labels):
     """Show highlight choices by their label; add the row number when a label is blank or repeated."""
     if i == "None": return "None"
@@ -314,51 +466,107 @@ def color_swatches(target):
     """Preset color buttons for the color setting `target`, painted in their own color; the active one gets a ring."""
     css = []
     for col, (name, hex_val) in zip(st.columns(len(COLOR_PRESETS)), COLOR_PRESETS.items()):
-        key = f"{target}_{name.lower()}"
+        btn_key = f"{target}_{name.lower()}"
         active = st.session_state[target].upper() == hex_val
-        col.button(name, key=key, help=f"{name} {hex_val}" + (" (selected)" if active else ""), width="stretch",
+        col.button(name, key=btn_key, help=f"{name} {hex_val}" + (" (selected)" if active else ""), width="stretch",
                    on_click=set_preset_color, args=(target, hex_val))
         text = "#000000" if hex_val == "#FFFFFF" else "#FFFFFF"
         ring = "box-shadow: 0 0 0 2px var(--st-background-color, #fff), 0 0 0 4px #FF4B4B;" if active else ""
-        css.append(f".st-key-{key} button {{ background: {hex_val}; color: {text}; border: 1px solid #888; padding: 0 2px; {ring} }}"
-                   f".st-key-{key} button p {{ font-size: 0.75rem; font-weight: 600; }}")
+        css.append(f".st-key-{btn_key} button {{ background: {hex_val}; color: {text}; border: 1px solid #888; padding: 0 2px; {ring} }}"
+                   f".st-key-{btn_key} button p {{ font-size: 0.75rem; font-weight: 600; }}")
     st.html(f"<style>{''.join(css)}</style>")
+
+def chart_type_label(c):
+    return c if c in dio.BASIC_TYPES else f"★ {c}"
 
 # Widgets are bound to session state via `key`, so each change applies on the first try
 with st.sidebar:
     st.header("Graphic Config")
-    if font_fallback: st.caption("⚠️ Proxima Nova font files not found; using the default sans-serif font.")
+    if charts.load_fonts()[2]: st.caption("⚠️ Proxima Nova font files not found; using the default sans-serif font.")
 
     with st.expander("📐 Canvas & Chart", expanded=True):
         cw, ch = st.columns(2)
         cw.number_input("Width (px)", *RANGES['width'], step=10, key='width')
         ch.number_input("Height (px)", *RANGES['height'], step=10, key='height')
-        chart_type = st.radio("Chart Type", CHOICES['chart_type'], key='chart_type', horizontal=True)
-        if chart_type == "Line":
+        st.selectbox("Chart Type", dio.CHART_TYPES, key='chart_type', format_func=chart_type_label, on_change=commit_table,
+                     help="Bar and Line are open-ended charts. ★ Presets are climate charts that can pull station data from IEM.")
+        if ct == "Line":
             st.slider("Line Thickness", *RANGES['line_width'], key='line_width')
             st.slider("Point Size", *RANGES['marker_size'], key='marker_size')
             st.selectbox("Marker Style", MARKER_SYMBOLS, key='marker_symbol')
-        else:
+        elif ct == "Bar":
             st.slider("Bar Spacing / Gap", *RANGES['bar_gap'], key='bar_gap')
-        st.checkbox("Show Second Series", key='show_v2')
+        if not is_preset:
+            st.checkbox("Show Second Series", key='show_v2')
 
-    with st.expander("🎨 Colors", expanded=True):
+    if is_preset:
+        with st.expander("⭐ Preset Options", expanded=True):
+            if ct == "Running Total vs Normal":
+                st.radio("Table values are", CHOICES['rt_input'], key='rt_input', horizontal=True,
+                         help="Daily amounts are added up for you.")
+                st.slider("Line Thickness", *RANGES['line_width'], key='line_width')
+                a, b = st.columns(2)
+                a.color_picker("Observed line", key='rt_obs_color')
+                b.color_picker("Normal line", key='rt_norm_color')
+                a.color_picker("Above normal fill", key='rt_surplus_color')
+                b.color_picker("Below normal fill", key='rt_deficit_color')
+                st.slider("Fill opacity", *RANGES['rt_fill_alpha'], key='rt_fill_alpha')
+                st.checkbox('Call-out on chart (e.g. 2.31" above normal)', key='rt_callout')
+            elif ct == "Record & Normal Band":
+                st.radio("Show actual temperatures as", CHOICES['rb_style'], key='rb_style', horizontal=True)
+                if st.session_state.rb_style == "Lines":
+                    st.slider("Line Thickness", *RANGES['line_width'], key='line_width')
+                a, b = st.columns(2)
+                a.color_picker("Actual high" if st.session_state.rb_style == "Lines" else "Bars", key='rb_high_color')
+                if st.session_state.rb_style == "Lines": b.color_picker("Actual low", key='rb_low_color')
+                a.color_picker("Normal band", key='rb_normal_color')
+                b.color_picker("Record band", key='rb_record_color')
+                st.slider("Band opacity", *RANGES['rb_band_alpha'], key='rb_band_alpha')
+                st.checkbox("Mark new records ★", key='rb_mark_records')
+                if st.session_state.rb_mark_records:
+                    a, b = st.columns(2)
+                    a.color_picker("Record marker", key='rb_mark_color')
+                    b.slider("Marker size", *RANGES['marker_size'], key='marker_size')
+                st.checkbox("Call-out on chart (e.g. 2 record highs)", key='rb_callout')
+            else:
+                year_opts = [""] + sorted(df_clean.dropna(subset=["Value"])["Year"].astype(str).unique(), reverse=True)
+                if st.session_state.yr_highlight not in year_opts: st.session_state.yr_highlight = ""
+                st.selectbox("Highlight year", year_opts, key='yr_highlight', format_func=lambda y: y or "Latest year")
+                st.radio("Order", CHOICES['yr_order'], key='yr_order', horizontal=True)
+                st.radio("Style", CHOICES['yr_style'], key='yr_style', horizontal=True)
+                if st.session_state.yr_style == "Dots": st.slider("Dot size", *RANGES['marker_size'], key='marker_size')
+                st.number_input("Show top N years (0 = all)", *RANGES['yr_top_n'], key='yr_top_n',
+                                help="The highlighted year is always shown.")
+                st.text_input("Ranking word", key='yr_word', max_chars=TEXT_KEYS['yr_word'],
+                              help='Used in the rank, e.g. "3rd wettest of 130 years".')
+                a, b = st.columns(2)
+                a.color_picker("Bar color", key='yr_color')
+                b.color_picker("Highlight color", key='highlight_color')
+                st.checkbox("Call-out on chart (e.g. 3rd wettest of 130 years)", key='yr_callout')
+
+    with st.expander("🎨 Colors", expanded=not is_preset):
         st.selectbox("Text Color", list(TEXT_COLORS), key='text_choice')
-        st.color_picker("Series 1 Color", key='last_c1')
-        color_swatches('last_c1')
-        if st.session_state.show_v2:
-            st.color_picker("Series 2 Color", key='last_c2')
-            color_swatches('last_c2')
-        st.divider()
-        labels = df_clean["Label"].tolist()
-        h_opts = ["None"] + list(range(len(labels)))
-        if st.session_state.highlight_idx not in h_opts: st.session_state.highlight_idx = "None"
-        st.selectbox("Highlight Point", h_opts, key='highlight_idx', format_func=lambda i: highlight_option_label(i, labels),
-                     help="Draws one point (Series 1) in the highlight color.")
-        st.color_picker("Highlight Color", key='highlight_color')
+        if not is_preset:
+            st.color_picker("Series 1 Color", key='last_c1')
+            color_swatches('last_c1')
+            if st.session_state.show_v2:
+                st.color_picker("Series 2 Color", key='last_c2')
+                color_swatches('last_c2')
+            st.divider()
+            labels = df_clean["Label"].tolist()
+            h_opts = ["None"] + list(range(len(labels)))
+            if st.session_state.highlight_idx not in h_opts: st.session_state.highlight_idx = "None"
+            st.selectbox("Highlight Point", h_opts, key='highlight_idx', format_func=lambda i: highlight_option_label(i, labels),
+                         help="Draws one point (Series 1) in the highlight color.")
+            st.color_picker("Highlight Color", key='highlight_color')
+        else:
+            st.caption("Chart colors for presets are in Preset Options.")
 
     with st.expander("🔢 Data Labels & Number Format"):
-        st.checkbox("Show Values on Chart", key='show_values')
+        if ct in dio.DATED_TYPES:
+            st.caption("Value labels aren't drawn on this chart; the font settings apply to the call-out.")
+        else:
+            st.checkbox("Show Values on Chart", key='show_values')
         st.slider("Data Label Font Size", *RANGES['value_sz'], key='value_sz')
         st.checkbox("Data Labels Bold", key='value_bold')
         st.selectbox("Decimal Places", CHOICES['num_decimals'], key='num_decimals',
@@ -370,10 +578,16 @@ with st.sidebar:
         st.checkbox("Prefix/Suffix on Y Axis Too", key='axis_units')
 
     with st.expander("📏 Axes"):
-        st.number_input("Y Interval", min_value=RANGES['y_step'][0], max_value=RANGES['y_step'][1], key='y_step')
-        st.checkbox("Force Y Axis to Start at 0", key='y_start_zero')
+        st.checkbox("Automatic Y Interval", key='y_auto', help="Picks a round interval with about 10 or fewer steps.")
+        if not st.session_state.y_auto:
+            st.number_input("Y Interval", min_value=RANGES['y_step'][0], max_value=RANGES['y_step'][1], key='y_step')
+        if ct != "Record & Normal Band":
+            st.checkbox("Force Y Axis to Start at 0", key='y_start_zero')
         st.slider("Y Axis Value Size", *RANGES['y_sz'], key='y_sz')
         st.checkbox("Y Axis Values Bold", key='y_bold')
+        if ct in dio.DATED_TYPES:
+            st.selectbox("Date Labels", CHOICES['date_labels'], key='date_labels',
+                         help="Auto uses month names for periods longer than about two months.")
         st.slider("X Axis Label Size", *RANGES['x_sz'], key='x_sz')
         st.checkbox("X Axis Labels Bold", key='x_bold')
         st.slider("X Label Rotation (Degrees)", *RANGES['x_rot'], key='x_rot')
@@ -388,14 +602,21 @@ with st.sidebar:
 
     txt_col = TEXT_COLORS[st.session_state.text_choice]
 
-# --- 7. PREVIEW CONTRAST CSS ---
+# --- 6. PREVIEW CONTRAST CSS ---
 preview_bg = "#262730" if txt_col == "white" else "white"
 st.markdown(f"""<style> [data-testid="stImage"] {{ background-color: {preview_bg}; border-radius: 10px; padding: 20px; }} </style>""", unsafe_allow_html=True)
 
-# --- 8. PREVIEW & EXPORT ---
+# --- 7. PREVIEW & EXPORT ---
 settings = {k: st.session_state[k] for k in state_defaults}
+if df_clean.empty:
+    st.info("Add some data to the table to see the chart.")
+    st.stop()
 png_bytes, y_step_used = render_chart(df_clean, settings, txt_col)
-if y_step_used > settings['y_step']:
+info_line = charts.summary(df_clean, settings)
+if info_line:
+    st.markdown(f"**{info_line}**")
+    st.caption(f"Source: {st.session_state.source_notes[key]}")
+if not settings['y_auto'] and y_step_used > settings['y_step']:
     st.caption(f"⚠️ Y Interval {settings['y_step']:g} is too small for this data range; using {y_step_used:.3g} instead.")
 st.image(png_bytes, width="stretch")
 
@@ -406,5 +627,11 @@ with col_dl1:
     st.download_button("🚀 DOWNLOAD PNG", data=png_bytes, file_name=f"weather_graphic_{datetime.now().strftime('%H%M%S')}.png", mime="image/png", width="stretch")
 
 with col_dl2:
-    project_json = json.dumps({"data": df_clean.to_dict(orient='records'), "settings": settings})
+    iem_query = {k: (v.isoformat() if isinstance(v, date) else [d.isoformat() for d in v] if isinstance(v, tuple) else v)
+                 for k, v in ((k, st.session_state[k]) for k in iem_defaults)}
+    datasets = {k: dio.to_records(df) for k, df in st.session_state.datasets.items()}
+    datasets[key] = dio.to_records(df_clean)  # Include unsaved table edits for the chart on screen
+    project_json = json.dumps({"version": 2, "chart_type": ct, "settings": settings, "datasets": datasets,
+                               "source_notes": st.session_state.source_notes, "iem_query": iem_query,
+                               "autoplot_mappings": st.session_state.autoplot_mappings})
     st.download_button("💾 SAVE PROJECT (JSON)", data=project_json, file_name="max_graph_project.json", mime="application/json", width="stretch")
