@@ -77,6 +77,14 @@ def test_highlight_by_label_and_paste():
     assert widget(at, "selectbox", "Highlight Point").options == ["None", "Sat", "Sun"]
 
 
+def test_paste_with_extra_and_duplicate_columns():
+    at = new()
+    at.text_area[0].input("Day\tHigh\tLow\tHigh\tLow\nSat\t70\t50\t71\t51\tx\n").run()
+    widget(at, "button", "Use pasted data").click().run()
+    assert problems(at) == []
+    assert at.session_state.datasets["Basic"].values.tolist() == [["Sat", 70.0, 50.0]]
+
+
 @pytest.mark.parametrize("chart", ["Running Total vs Normal", "Record & Normal Band", "Year Ranking"])
 def test_presets_render_sample_data(chart):
     at = new()

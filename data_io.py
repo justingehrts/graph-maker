@@ -1,4 +1,5 @@
 """Table layouts per chart type, plus parsing/cleanup for pasted, imported and loaded data. No Streamlit here."""
+import csv
 import io
 import re
 from datetime import date
@@ -189,8 +190,18 @@ def guess_mapping(cols, key):
     return dict(zip(wanted, cols))
 
 
+def unique_names(names):
+    """Column names made unique ("High", "High (2)") so each one picks out exactly one column."""
+    seen, out = {}, []
+    for name in (str(n).strip() or f"Column {i + 1}" for i, n in enumerate(names)):
+        seen[name] = seen.get(name, 0) + 1
+        out.append(name if seen[name] == 1 else f"{name} ({seen[name]})")
+    return out
+
+
 def map_columns(raw, key):
     """Pick the `key` layout's columns out of `raw`. Returns (df with layout columns, ignored source column names)."""
+    raw = raw.set_axis(unique_names(raw.columns), axis=1)
     mapping = guess_mapping(raw.columns, key)
     out = pd.DataFrame({t: raw[src] for t, src in mapping.items()})
     return out, [str(c) for c in raw.columns if c not in mapping.values()]
@@ -211,11 +222,15 @@ def parse_pasted(text):
     """
     text = text.strip("\n")
     sep = '\t' if '\t' in text else (';' if ';' in text and ',' not in text else ',')
-    df = pd.read_csv(io.StringIO(text), sep=sep, header=None, dtype=str, skip_blank_lines=True,
-                     keep_default_na=False, engine="python")
+    rows = [r for r in csv.reader(io.StringIO(text), delimiter=sep) if any(c.strip() for c in r)]
+    # Rows can have different numbers of cells (e.g. extra cells past the header); pad them to the widest row
+    width = max((len(r) for r in rows), default=0)
+    df = pd.DataFrame([r + [""] * (width - len(r)) for r in rows], dtype=str)
+    if df.empty:
+        return df
     df = df.loc[:, ~(df == "").all()]  # Empty columns from trailing tabs
     if len(df) > 1 and df.shape[1] > 1 and not any(_data_like(c) for c in df.iloc[0]):
-        header = [str(c).strip() or f"Column {i + 1}" for i, c in enumerate(df.iloc[0])]
+        header = unique_names(df.iloc[0])
         df = df.iloc[1:].reset_index(drop=True)
         df.columns = header
     else:

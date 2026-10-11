@@ -94,3 +94,20 @@ def test_samples_and_records_roundtrip():
         df = dio.sample_data(key)
         back, _ = dio.normalize(pd.DataFrame(dio.to_records(df)), key)
         assert list(back.columns) == dio.columns(key) and len(back) == len(df)
+
+
+@pytest.mark.parametrize("key", ["Basic", "Record & Normal Band"])
+def test_duplicate_header_names(key):
+    # Pasting a header with repeated names used to crash the app
+    df, _, ignored = load("Date\tHigh\tLow\tHigh\tLow\n2025-07-01\t88\t64\t90\t60\n", key)
+    assert len(df) == 1 and ignored == ["High (2)", "Low (2)"]
+
+
+def test_rows_wider_than_header_are_padded():
+    df, _, ignored = load("Date\tHigh\tLow\n2025-07-01\t88\t64\t1\t2\n2025-07-02\t91\t70\n", "Record & Normal Band")
+    assert df["Actual High"].tolist() == [88, 91] and ignored == ["Column 4", "Column 5"]
+
+
+def test_quoted_csv_values():
+    df, _, _ = load('Day,Total\n"Oct 1","1,280"\n', "Basic")
+    assert df["Label"].tolist() == ["Oct 1"] and df["Value 1"].tolist() == [1280.0]

@@ -158,8 +158,12 @@ def load_raw(raw, note):
     if raw.shape[1] < 2:
         st.error(f"The data needs at least 2 columns. Expected: {', '.join(dio.columns(key))}.")
         return False
-    mapped, ignored = dio.map_columns(raw, key)
-    df, notes = dio.normalize(mapped, key)
+    try:
+        mapped, ignored = dio.map_columns(raw, key)
+        df, notes = dio.normalize(mapped, key)
+    except Exception as e:  # Unexpected layouts get a message instead of crashing the app
+        st.error(f"Couldn't make sense of that data. Expected columns: {', '.join(dio.columns(key))}. Details: {e}")
+        return False
     if df.empty:
         st.error(f"No rows of data found. Expected columns: {', '.join(dio.columns(key))}.")
         return False
