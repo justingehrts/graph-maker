@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
 import io
 import json
+import re
 from datetime import datetime
 
 # --- 1. FONT LOADING ---
@@ -42,6 +43,36 @@ state_defaults = {
 }
 for key, val in state_defaults.items():
     if key not in st.session_state: st.session_state[key] = val
+    # Re-assigning keeps widget-bound values alive while their widget is hidden (e.g. Line-only controls in Bar mode)
+    st.session_state[key] = st.session_state[key]
+
+# Allowed values for every widget-bound setting; shared by the widgets and project loading
+TEXT_COLORS = {"White": "white", "Black": "black", "Navy": "#022E67"}
+MARKER_SYMBOLS = ["Circle", "Square", "Triangle", "Diamond"]
+CHOICES = {'chart_type': ["Bar", "Line"], 'text_choice': list(TEXT_COLORS), 'marker_symbol': MARKER_SYMBOLS}
+RANGES = {
+    'width': (100, 7680), 'height': (100, 7680), 'x_sz': (10, 100), 'y_sz': (10, 100),
+    'value_sz': (5, 80), 'line_width': (1, 25), 'marker_size': (1, 50), 'x_rot': (-90, 90),
+    'bar_gap': (0.0, 0.9), 'y_step': (0.01, 1e9),
+}
+COLOR_KEYS = ['last_c1', 'last_c2', 'highlight_color']
+MAX_Y_TICKS = 50
+
+def sanitize_setting(key, val):
+    """Return a value safe to put into the widget for `key`, or None if it can't be used."""
+    if key in CHOICES:
+        return val if val in CHOICES[key] else None
+    if key in RANGES:
+        if isinstance(val, bool) or not isinstance(val, (int, float)): return None
+        lo, hi = RANGES[key]
+        return type(lo)(min(max(val, lo), hi))
+    if key in COLOR_KEYS:
+        return val if isinstance(val, str) and re.fullmatch(r'#[0-9A-Fa-f]{6}', val) else None
+    if key == 'highlight_idx':
+        return val if val == "None" or (isinstance(val, int) and not isinstance(val, bool) and val >= 0) else None
+    if isinstance(state_defaults.get(key), bool):
+        return val if isinstance(val, bool) else None
+    return None
 
 # --- 3. CALLBACKS ---
 def set_preset_color(target_key, color_hex):
@@ -83,77 +114,76 @@ def handle_json():
             st.session_state.main_df = df_json
             
             if 'settings' in p: 
-                # Only load valid settings keys to prevent importing corrupted states
-                safe_settings = {k: v for k, v in p['settings'].items() if k in state_defaults}
-                st.session_state.update(safe_settings)
+                # Only load known keys with valid values; anything else keeps its current setting
+                for k, v in p['settings'].items():
+                    if k not in state_defaults or k == 'editor_key': continue
+                    safe_val = sanitize_setting(k, v)
+                    if safe_val is not None: st.session_state[k] = safe_val
             st.session_state.editor_key += 1
         except Exception as e:
             st.error(f"Failed to load project file. It may be corrupted. Error: {e}")
 
 # --- 4. UI / SIDEBAR ---
+# Widgets are bound to session state via `key`, so each change applies on the first try
 with st.sidebar:
     st.header("Graphic Config")
-    w = st.number_input("Width (px)", value=st.session_state.width); st.session_state.width = w
-    h = st.number_input("Height (px)", value=st.session_state.height); st.session_state.height = h
+    st.number_input("Width (px)", *RANGES['width'], step=10, key='width')
+    st.number_input("Height (px)", *RANGES['height'], step=10, key='height')
     
-    chart_type = st.radio("Chart Type", ["Bar", "Line"], index=0 if st.session_state.chart_type == "Bar" else 1)
-    st.session_state.chart_type = chart_type
+    chart_type = st.radio("Chart Type", CHOICES['chart_type'], key='chart_type')
     
     if chart_type == "Line":
-        st.session_state.line_width = st.slider("Line Thickness", 1, 25, st.session_state.line_width)
-        st.session_state.marker_size = st.slider("Point Size", 1, 50, st.session_state.marker_size)
-        st.session_state.marker_symbol = st.selectbox("Marker Style", ["Circle", "Square", "Triangle", "Diamond"], index=["Circle", "Square", "Triangle", "Diamond"].index(st.session_state.marker_symbol))
+        st.slider("Line Thickness", *RANGES['line_width'], key='line_width')
+        st.slider("Point Size", *RANGES['marker_size'], key='marker_size')
+        st.selectbox("Marker Style", MARKER_SYMBOLS, key='marker_symbol')
     else:
-        st.session_state.bar_gap = st.slider("Bar Spacing / Gap", 0.0, 0.9, value=st.session_state.bar_gap)
+        st.slider("Bar Spacing / Gap", *RANGES['bar_gap'], key='bar_gap')
     
-    st.session_state.show_v2 = st.checkbox("Show Second Series", value=st.session_state.show_v2)
-    st.session_state.y_start_zero = st.checkbox("Force Axis to 0", value=st.session_state.y_start_zero)
+    st.checkbox("Show Second Series", key='show_v2')
+    st.checkbox("Force Axis to 0", key='y_start_zero')
     
     st.divider()
     st.write("**Highlight Point**")
     h_opts = ["None"] + list(range(len(st.session_state.main_df)))
-    st.session_state.highlight_idx = st.selectbox("Index", h_opts, index=0)
-    st.session_state.highlight_color = st.color_picker("Highlight Color", value=st.session_state.highlight_color)
+    if st.session_state.highlight_idx not in h_opts: st.session_state.highlight_idx = "None"
+    st.selectbox("Index", h_opts, key='highlight_idx')
+    st.color_picker("Highlight Color", key='highlight_color')
 
     st.divider()
     st.write("**Data Labels**")
-    st.session_state.show_values = st.checkbox("Show Values", value=st.session_state.show_values)
-    st.session_state.value_sz = st.slider("Data Label Font Size", 5, 80, st.session_state.value_sz)
-    st.session_state.value_bold = st.checkbox("Data Bold", value=st.session_state.value_bold)
+    st.checkbox("Show Values", key='show_values')
+    st.slider("Data Label Font Size", *RANGES['value_sz'], key='value_sz')
+    st.checkbox("Data Bold", key='value_bold')
 
     st.divider()
     st.header("Typography & Intervals")
-    st.session_state.y_step = st.number_input("Y Interval", value=float(st.session_state.y_step))
-    st.session_state.x_sz = st.slider("Axis Label Size (X)", 10, 100, st.session_state.x_sz)
-    st.session_state.x_bold = st.checkbox("Axis Label Bold (X)", value=st.session_state.x_bold)
-    st.session_state.x_rot = st.slider("Rotation (Degrees)", -90, 90, st.session_state.x_rot)
-    st.session_state.y_sz = st.slider("Axis Value Size (Y)", 10, 100, st.session_state.y_sz)
-    st.session_state.y_bold = st.checkbox("Axis Value Bold (Y)", value=st.session_state.y_bold)
+    st.number_input("Y Interval", min_value=RANGES['y_step'][0], max_value=RANGES['y_step'][1], key='y_step')
+    st.slider("Axis Label Size (X)", *RANGES['x_sz'], key='x_sz')
+    st.checkbox("Axis Label Bold (X)", key='x_bold')
+    st.slider("Rotation (Degrees)", *RANGES['x_rot'], key='x_rot')
+    st.slider("Axis Value Size (Y)", *RANGES['y_sz'], key='y_sz')
+    st.checkbox("Axis Value Bold (Y)", key='y_bold')
     
     st.divider()
-    color_map = {"White": "white", "Black": "black", "Navy": "#022E67"}
-    st.session_state.text_choice = st.selectbox("Text Color Preset", list(color_map.keys()), index=list(color_map.keys()).index(st.session_state.text_choice))
-    txt_col = color_map[st.session_state.text_choice]
+    st.selectbox("Text Color Preset", list(TEXT_COLORS), key='text_choice')
+    txt_col = TEXT_COLORS[st.session_state.text_choice]
 
     st.write("**Data Colors**")
     presets = {"NY": "#022E67", "RB": "#045EA8", "RD": "#C80000", "WT": "#FFFFFF"}
     
-    st.session_state.last_c1 = st.color_picker("S1 Picker", value=st.session_state.last_c1)
+    st.color_picker("S1 Picker", key='last_c1')
     cp1, cp2, cp3, cp4 = st.columns(4)
     cp1.button("NY", key="s1_ny", on_click=set_preset_color, args=('last_c1', presets["NY"]))
     cp2.button("RB", key="s1_rb", on_click=set_preset_color, args=('last_c1', presets["RB"]))
     cp3.button("RD", key="s1_rd", on_click=set_preset_color, args=('last_c1', presets["RD"]))
     cp4.button("WT", key="s1_wt", on_click=set_preset_color, args=('last_c1', presets["WT"]))
 
-    st.session_state.last_c2 = st.color_picker("S2 Picker", value=st.session_state.last_c2)
+    st.color_picker("S2 Picker", key='last_c2')
     cp5, cp6, cp7, cp8 = st.columns(4)
     cp5.button("NY", key="s2_ny", on_click=set_preset_color, args=('last_c2', presets["NY"]))
     cp6.button("RB", key="s2_rb", on_click=set_preset_color, args=('last_c2', presets["RB"]))
     cp7.button("RD", key="s2_rd", on_click=set_preset_color, args=('last_c2', presets["RD"]))
     cp8.button("WT", key="s2_wt", on_click=set_preset_color, args=('last_c2', presets["WT"]))
-    
-    if st.button("🔄 APPLY SETTINGS"):
-        st.rerun()
 
 # --- 5. DATA INPUT ---
 st.subheader("Data Input")
@@ -230,7 +260,15 @@ ax.set_xticks(x)
 ax.set_xticklabels(labels, fontproperties=prop_bold if st.session_state.x_bold else prop_reg, fontsize=st.session_state.x_sz, color=txt_col, rotation=st.session_state.x_rot)
 ax.tick_params(axis='x', colors=txt_col, width=3, length=8, zorder=4)
 
-ax.yaxis.set_major_locator(plt.MultipleLocator(st.session_state.y_step))
+all_data = v1 + (df_clean["Value 2"].tolist() if (st.session_state.show_v2 and "Value 2" in df_clean.columns) else [])
+ax.set_ylim(0 if st.session_state.y_start_zero else min(all_data or [0]) * 0.9, max(all_data or [10]) * 1.25)
+
+# Widen the interval if it would draw an unreadable (or app-freezing) number of ticks
+y_lo, y_hi = ax.get_ylim()
+y_step = max(st.session_state.y_step, abs(y_hi - y_lo) / MAX_Y_TICKS)
+if y_step > st.session_state.y_step:
+    st.caption(f"⚠️ Y Interval {st.session_state.y_step:g} is too small for this data range; using {y_step:.3g} instead.")
+ax.yaxis.set_major_locator(plt.MultipleLocator(y_step))
 ax.tick_params(axis='y', colors=txt_col, width=3, length=8, zorder=4)
 
 for tick in ax.get_yticklabels():
@@ -239,9 +277,6 @@ for tick in ax.get_yticklabels():
 for tick in ax.get_xticklabels():
     tick.set_fontproperties(prop_bold if st.session_state.x_bold else prop_reg)
     tick.set_fontsize(st.session_state.x_sz)
-
-all_data = v1 + (df_clean["Value 2"].tolist() if (st.session_state.show_v2 and "Value 2" in df_clean.columns) else [])
-ax.set_ylim(0 if st.session_state.y_start_zero else min(all_data or [0]) * 0.9, max(all_data or [10]) * 1.25)
 
 ax.spines['top'].set_visible(False)
 ax.spines['right'].set_visible(False)
