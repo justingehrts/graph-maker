@@ -1,0 +1,154 @@
+"""End-to-end checks of the Streamlit app with AppTest. IEM calls are replaced by the saved Ames data."""
+import gzip
+from pathlib import Path
+
+import pandas as pd
+import pytest
+import streamlit as st
+from streamlit.testing.v1 import AppTest
+
+import iem
+
+APP = str(Path(__file__).parent.parent / "app.py")
+FIX = Path(__file__).parent / "fixtures"
+DAILY = iem.parse_daily_csv(gzip.open(FIX / "iem_coop_IATAME.csv.gz", "rt").read())
+STATIONS = pd.DataFrame({"id": ["IATAME"], "name": ["Ames Area"], "county": ["Story"], "begin": [1893],
+                         "label": ["Ames Area (IATAME) · Story Co. · since 1893"]})
+
+
+@pytest.fixture(autouse=True)
+def fake_iem(monkeypatch):
+    st.cache_data.clear()
+    monkeypatch.setattr(iem, "fetch_stations", lambda state: STATIONS)
+    monkeypatch.setattr(iem, "fetch_daily", lambda station, state: DAILY.loc[:"2025-10-10"])
+
+
+def new(**state):
+    at = AppTest.from_file(APP, default_timeout=90)
+    for k, v in state.items():
+        at.session_state[k] = v
+    at.run()
+    return at
+
+
+def problems(at):
+    return [e.message for e in at.exception] + [e.value for e in at.error]
+
+
+def widget(at, kind, label):
+    return next(w for w in getattr(at, kind) if w.label == label)
+
+
+def test_baseline_has_no_errors_or_warnings():
+    at = new()
+    assert problems(at) == [] and not at.warning
+
+
+def test_every_setting_change_applies_first_time():
+    at = new()
+    for v in (40, 50, 60):
+        widget(at, "slider", "X Axis Label Size").set_value(v).run()
+    assert at.session_state.x_sz == 60
+
+
+def test_hidden_controls_keep_their_values():
+    at = new()
+    widget(at, "selectbox", "Chart Type").set_value("Line").run()
+    widget(at, "slider", "Line Thickness").set_value(20).run()
+    widget(at, "selectbox", "Chart Type").set_value("Bar").run()
+    widget(at, "selectbox", "Chart Type").set_value("Line").run()
+    assert at.session_state.line_width == 20 and problems(at) == []
+
+
+def test_manual_y_interval_guard():
+    at = new()
+    widget(at, "checkbox", "Automatic Y Interval").uncheck().run()
+    widget(at, "number_input", "Y Interval").set_value(0.01).run()
+    assert problems(at) == [] and any("too small" in c.value for c in at.caption)
+
+
+def test_highlight_by_label_and_paste():
+    at = new()
+    hl = widget(at, "selectbox", "Highlight Point")
+    assert hl.options == ["None", "Mon", "Tue", "Wed", "Thu", "Fri"]
+    at.text_area[0].input("Day\tHigh\nSat\t70°\nSun\t72°\n").run()
+    widget(at, "button", "Use pasted data").click().run()
+    assert at.session_state.datasets["Basic"]["Label"].tolist() == ["Sat", "Sun"]
+    assert widget(at, "selectbox", "Highlight Point").options == ["None", "Sat", "Sun"]
+
+
+@pytest.mark.parametrize("chart", ["Running Total vs Normal", "Record & Normal Band", "Year Ranking"])
+def test_presets_render_sample_data(chart):
+    at = new()
+    widget(at, "selectbox", "Chart Type").set_value(chart).run()
+    assert problems(at) == []
+    assert any(m.value.startswith("**") for m in at.markdown)  # The summary line
+
+
+def test_switching_chart_types_keeps_each_table():
+    at = new()
+    widget(at, "selectbox", "Chart Type").set_value("Year Ranking").run()
+    at.text_area[0].input("Year\tValue\n2001\t5\n2002\t7\n").run()
+    widget(at, "button", "Use pasted data").click().run()
+    widget(at, "selectbox", "Chart Type").set_value("Bar").run()
+    widget(at, "selectbox", "Chart Type").set_value("Year Ranking").run()
+    assert at.session_state.datasets["Year Ranking"]["Year"].tolist() == ["2001", "2002"]
+    assert at.session_state.datasets["Basic"]["Label"].iloc[0] == "Mon"
+
+
+def use_station(chart, **choices):
+    at = new(chart_type=chart, iem_state="IA", iem_station="IATAME", **choices)
+    widget(at, "button", "📥 Use this station data").click().run()
+    assert problems(at) == []
+    return at
+
+
+def test_running_total_from_iem():
+    at = use_station("Running Total vs Normal", rt_year=2025)
+    df = at.session_state.datasets["Running Total vs Normal"]
+    assert df["Date"].iloc[0] == pd.Timestamp("2025-01-01") and df["Date"].iloc[-1] == pd.Timestamp("2025-10-10")
+    assert at.session_state.source_notes["Running Total vs Normal"].startswith("IEM · Ames Area (IATAME)")
+    assert at.session_state.num_suffix == '"'
+    assert any("Through Oct 10" in m.value for m in at.markdown)
+
+
+def test_record_band_from_iem():
+    at = use_station("Record & Normal Band", rb_mode="Month", rb_month="July", rb_year=2025)
+    df = at.session_state.datasets["Record & Normal Band"]
+    assert len(df) == 31 and at.session_state.num_suffix == "°"
+
+
+def test_year_ranking_from_iem():
+    at = use_station("Year Ranking", yr_var="Total snowfall", yr_period="Season", yr_season="Winter (Dec–Feb)",
+                     yr_max_missing=20)
+    df = at.session_state.datasets["Year Ranking"]
+    assert df["Year"].iloc[-1] == "2024-25"
+    assert at.session_state.yr_word == "snowiest"
+    assert any("2024-25:" in m.value and "snowiest of" in m.value for m in at.markdown)
+
+
+def test_year_ranking_says_when_latest_year_is_left_out():
+    # Ames is missing 16 snow reports in winter 2024-25, more than the default allowance of 3
+    at = use_station("Year Ranking", yr_var="Total snowfall", yr_period="Season", yr_season="Winter (Dec–Feb)")
+    assert "2024-25 is left out" in at.session_state.source_notes["Year Ranking"]
+    assert any("2024-25 is left out" in c.value for c in at.caption)
+
+
+def test_iem_outage_shows_friendly_error(monkeypatch):
+    def down(state):
+        raise iem.IEMError("Couldn't get data from the Iowa Environmental Mesonet (ConnectionError).")
+    monkeypatch.setattr(iem, "fetch_stations", down)
+    at = new(chart_type="Running Total vs Normal")
+    assert not at.exception and any("Couldn't get data" in e.value for e in at.error)
+
+
+def test_autoplot_import(monkeypatch):
+    raw = pd.DataFrame({"yr": [2001, 2002, 2003], "data": [30.5, 41.2, 28.0]})
+    monkeypatch.setattr(iem, "autoplot_meta", lambda n: {"title": "Yearly totals", "data": True})
+    monkeypatch.setattr(iem, "fetch_autoplot_csv", lambda url: raw)
+    at = new(chart_type="Year Ranking")
+    at.text_input(key="ap_url").input("https://mesonet.agron.iastate.edu/plotting/auto/?q=189&station=IATAME").run()
+    widget(at, "button", "Use this autoplot data").click().run()
+    assert problems(at) == []
+    assert at.session_state.datasets["Year Ranking"]["Value"].tolist() == [30.5, 41.2, 28.0]
+    assert at.session_state.autoplot_mappings["189"] == {"Year": "yr", "Value": "data"}
