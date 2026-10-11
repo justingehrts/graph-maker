@@ -1,12 +1,14 @@
 # Max Graph Maker
 
-A Streamlit app for building bar and line chart graphics (e.g. for on-air weather graphics) and exporting them as transparent PNGs.
+A Streamlit app for building bar and line chart graphics for on-air weather graphics, exported as transparent PNGs for import into Max.
 
 ## Features
 
-- Enter data in the table, or import it from CSV/Excel (first column = labels, next 1–2 columns = numbers)
+- Enter data in the table, paste cells straight from Excel/Google Sheets, or import a CSV/Excel file (first column = labels, next 1–2 columns = numbers)
 - Bar or line charts with one or two series, a highlighted point, and optional data labels
-- Control over size, fonts, colors, axis interval and label rotation
+- Number formatting: decimal places, prefix/suffix units (e.g. `°`, `%`, `"`), thousands separators
+- Control over size, fonts, colors (with brand color presets), gridlines, axis interval and label rotation
+- No titles or legends: those are added in Max
 - Download the chart as a transparent PNG
 - Save and reload your data and settings as a project (JSON) file
 
