@@ -262,3 +262,13 @@ def test_autoplot_import(monkeypatch):
     assert problems(at) == []
     assert at.session_state.datasets["Year Ranking"]["Value"].tolist() == [30.5, 41.2, 28.0]
     assert at.session_state.autoplot_mappings["189"] == {"Year": "yr", "Value": "data"}
+
+
+def test_station_defaults_to_columbus(monkeypatch):
+    columbus = pd.DataFrame({"id": ["OHTCMH"], "name": ["Columbus Area"], "county": ["Franklin"], "begin": [1878],
+                             "ncei91": ["USW00014821"], "label": ["Columbus Area (OHTCMH) · Franklin Co. · since 1878"]})
+    asked = []
+    monkeypatch.setattr(iem, "fetch_stations", lambda state: asked.append(state) or columbus)
+    at = new(chart_type="Running Total vs Normal")
+    assert at.session_state.iem_state == "OH" and at.session_state.iem_station == "OHTCMH" and asked == ["OH"]
+    assert at.selectbox(key="iem_station").value == "OHTCMH" and problems(at) == []

@@ -59,7 +59,7 @@ NORMAL_PERIODS = {"NCEI 1991–2020": "ncei", "Full record": None}
 IEM_FALLBACK_NOTE = "IEM 1991–2020 station averages (not official NCEI normals)"
 MONTHS = list(month_name)[1:]
 iem_defaults = {
-    'iem_state': "IA", 'iem_station': None, 'normal_period': "NCEI 1991–2020", 'normals_fallback': False,
+    'iem_state': "OH", 'iem_station': "OHTCMH",  # Columbus Area, the home station 'normal_period': "NCEI 1991–2020", 'normals_fallback': False,
     'rt_var': "Rain", 'rt_start': "Jan 1", 'rt_year': TODAY.year, 'rt_to_latest': True, 'rt_end': TODAY,
     'rt_extend': False,
     'rb_mode': "Full year", 'rb_month': MONTHS[TODAY.month - 1], 'rb_year': TODAY.year,
@@ -445,7 +445,7 @@ if is_preset:
     with st.expander("🛰️ Station data from the Iowa Environmental Mesonet (IEM)", expanded=True):
         cs, cn = st.columns([1, 3])
         cs.selectbox("State", iem.STATES, key='iem_state')
-        stations, daily = None, None
+        stations, daily, ncei_ids = None, None, {}
         try:
             stations = load_stations(st.session_state.iem_state)
         except iem.IEMError as e:
