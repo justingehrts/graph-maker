@@ -154,3 +154,9 @@ def test_required_columns_fill_by_position_but_optional_ones_dont():
 def test_date_formatting():
     s = {"value_kind": "Date", "num_thousands": False, "num_decimals": "2", "num_prefix": "", "num_suffix": '"'}
     assert dio.format_number(291, s) == "Oct 18" and dio.format_number(365, s) == "Dec 31"
+
+
+def test_dates_shown_as_text_read_back_unchanged():
+    days, _ = dio.clean_numbers(pd.Series(["20-Nov", "5-Jan", "30-Dec"]), keep_missing=True)
+    again, counts = dio.clean_numbers(days.map(dio.day_of_year_text), keep_missing=True)
+    assert again.tolist() == days.tolist() and counts["dates"] == 3

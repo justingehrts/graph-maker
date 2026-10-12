@@ -272,3 +272,40 @@ def test_station_defaults_to_columbus(monkeypatch):
     at = new(chart_type="Running Total vs Normal")
     assert at.session_state.iem_state == "OH" and at.session_state.iem_station == "OHTCMH" and asked == ["OH"]
     assert at.selectbox(key="iem_station").value == "OHTCMH" and problems(at) == []
+
+
+def test_date_tables_show_dates_not_day_numbers():
+    at = new()
+    at.text_area[0].input(XMACIS_LAST).run()
+    widget(at, "button", "Use pasted data").click().run()
+    shown = at.dataframe[0].value  # The data editor as displayed
+    assert shown["Value 1"].iloc[0] == "Oct 1" and shown["Value 1"].iloc[-1] == "Oct 18"
+    assert shown["Value 2"].iloc[0] == ""  # Unused second series stays blank, not "Dec 31"
+    # Switching to Numbers shows the stored day numbers; back to Dates restores the dates, data unchanged
+    widget(at, "radio", "Values are").set_value("Number").run()
+    assert at.dataframe[0].value["Value 1"].iloc[0] == 274
+    widget(at, "radio", "Values are").set_value("Date").run()
+    assert problems(at) == [] and at.dataframe[0].value["Value 1"].iloc[-1] == "Oct 18"
+    assert at.session_state.datasets["Basic"]["Value 1"].iloc[-1] == 291
+
+
+def test_x_axis_label_choices():
+    import charts
+    years = [str(y) for y in range(1878, 2026)]
+    pick = lambda mode, keep=(): [years[i] for i in charts.label_positions(years, {"x_label_every": mode}, keep)]
+    assert pick("Years ending in 0")[:3] == ["1880", "1890", "1900"] and pick("Years ending in 0")[-1] == "2020"
+    assert pick("Years ending in 0 or 5")[:3] == ["1880", "1885", "1890"]
+    assert pick("Years ending in 0", keep=[147])[-2:] == ["2010", "2025"]  # Kept 2025 pushes out the too-close 2020
+    assert len(pick("Every label")) == 148 and pick("Every 10th")[:2] == ["1878", "1888"]
+    seasons = ["2019-20", "2020-21", "2021-22"]
+    assert charts.label_positions(seasons, {"x_label_every": "Years ending in 0"}) == [1]
+    assert charts.label_positions(["Mon", "Tue"], {"x_label_every": "Years ending in 0"}) == [0, 1]  # Not years: Auto
+    at = new()
+    at.text_area[0].input(XMACIS_LAST).run()
+    widget(at, "button", "Use pasted data").click().run()
+    for mode in ("Years ending in 0 or 5", "Every label"):
+        widget(at, "selectbox", "X Axis Labels").set_value(mode).run()
+        assert problems(at) == []
+    widget(at, "radio", "Chart Type").set_value("Year Ranking").run()
+    widget(at, "selectbox", "X Axis Labels").set_value("Years ending in 0").run()
+    assert problems(at) == []

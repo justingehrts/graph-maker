@@ -22,7 +22,7 @@ state_defaults = {
     'show_values': False, 'value_sz': 24, 'value_bold': True,
     'highlight_idx': "None", 'highlight_color': '#FFD700',
     'line_width': 8, 'marker_size': 15, 'marker_symbol': 'Circle',
-    'x_rot': 0,
+    'x_rot': 0, 'x_label_every': "Auto",
     'value_kind': "Number",  # "Date": values are days of the year (e.g. last 80° day by year), shown as "Oct 18"
     'num_decimals': "Auto", 'num_prefix': "", 'num_suffix': "", 'num_thousands': False, 'axis_units': False,
     'grid_show': True, 'grid_color': '#808080', 'grid_alpha': 0.3, 'grid_width': 0.8, 'grid_style': "Solid",
@@ -90,7 +90,7 @@ MARKER_SYMBOLS = list(charts.MARKERS)
 GRID_STYLES = charts.GRID_STYLES
 CHOICES = {'chart_type': dio.CHART_TYPES, 'text_choice': list(TEXT_COLORS), 'marker_symbol': MARKER_SYMBOLS,
            'num_decimals': ["Auto", "0", "1", "2", "3"], 'grid_style': list(GRID_STYLES), 'value_kind': ["Number", "Date"],
-           'date_labels': ["Auto", "Month names", "Month + day", "Day numbers"],
+           'date_labels': ["Auto", "Month names", "Month + day", "Day numbers"], 'x_label_every': ["Auto", *charts.X_LABEL_STEPS],
            'rt_input': ["Running totals", "Daily amounts"], 'rb_style': ["Lines", "Bars"],
            'rb_band_style': ["Layered", "Simple"], 'rb_mark_shape': ["Dot", "Star"],
            'yr_order': ["Sorted", "By year"], 'yr_rank_dir': ["Highest", "Lowest"], 'yr_style': ["Bars", "Dots", "Line"]}
@@ -300,6 +300,14 @@ def commit_table():
     # Numbers or dates follow the table now on screen
     new_key = active_key()
     st.session_state.value_kind = st.session_state.table_kinds.get(new_key, "Number")
+
+def change_value_kind():
+    """Switching Numbers/Dates keeps the table's edits and redraws it in the new form."""
+    k, df = st.session_state.get('_current_table', (None, None))
+    if k is not None:
+        st.session_state.datasets[k] = df
+        st.session_state.editor_keys[k] += 1
+    st.session_state.table_kinds[active_key()] = st.session_state.value_kind
 
 def iem_choices(key):
     return {'iem_state': iem.STATES, 'normal_period': list(NORMAL_PERIODS), 'rt_var': ["Rain", "Snow"],
@@ -554,16 +562,24 @@ cap.caption(f"Columns: {', '.join(dio.columns(key))} · Source: {st.session_stat
 tmpl.download_button("Blank template (CSV)", dio.template_csv(key), file_name=f"{key.lower().replace(' ', '_').replace('&', 'and')}_template.csv",
                      mime="text/csv", width="stretch")
 
+show_dates = st.session_state.value_kind == "Date"
+table = st.session_state.datasets[key]
 column_config = {}
 for col, kind in dio.SCHEMAS[key]:
-    column_config[col] = (st.column_config.DateColumn(col, format="YYYY-MM-DD") if kind == "date"
-                          else st.column_config.NumberColumn(col) if kind == "num" else st.column_config.TextColumn(col))
+    if kind == "num" and show_dates:
+        # Dates are stored as day of year; show and edit them as "Oct 18" (read back the same way as a paste)
+        table = table.assign(**{col: table[col].map(
+            lambda v: "" if pd.isna(v) or (key == "Basic" and v == 0) else dio.day_of_year_text(v))})
+        column_config[col] = st.column_config.TextColumn(col, help='Dates, e.g. "Oct 18"')
+    else:
+        column_config[col] = (st.column_config.DateColumn(col, format="YYYY-MM-DD") if kind == "date"
+                              else st.column_config.NumberColumn(col) if kind == "num" else st.column_config.TextColumn(col))
 # The stored table is only the starting data; the editor keeps the edits itself, so its output is never fed back in
 df_input = st.data_editor(
-    st.session_state.datasets[key], num_rows="dynamic", width="stretch", hide_index=is_preset,
-    key=f"editor_{key}_{st.session_state.editor_keys[key]}", column_config=column_config)
+    table, num_rows="dynamic", width="stretch", hide_index=is_preset,
+    key=f"editor_{key}_{st.session_state.editor_keys[key]}_{st.session_state.value_kind}", column_config=column_config)
 df_clean, _ = dio.normalize(df_input, key)
-st.session_state._current_table = (key, df_input)
+st.session_state._current_table = (key, df_clean)
 
 # --- 5. UI / SIDEBAR ---
 def highlight_option_label(i, labels):
@@ -718,7 +734,7 @@ with st.sidebar:
         st.checkbox("Data Labels Bold", key='value_bold')
         st.radio("Values are", CHOICES['value_kind'], key='value_kind', horizontal=True,
                  format_func=lambda k: {"Number": "Numbers", "Date": "Dates"}[k],
-                 on_change=lambda: st.session_state.table_kinds.__setitem__(active_key(), st.session_state.value_kind),
+                 on_change=change_value_kind,
                  help="Dates (e.g. a last-frost date per year) show as \"Oct 18\"; picked automatically when you paste "
                       "or import data.")
         if st.session_state.value_kind == "Date":
@@ -742,6 +758,11 @@ with st.sidebar:
         if ct in dio.DATED_TYPES:
             st.selectbox("Date Labels", CHOICES['date_labels'], key='date_labels',
                          help="Auto uses month names for periods longer than about two months.")
+        if ct not in dio.DATED_TYPES:
+            st.selectbox("X Axis Labels", CHOICES['x_label_every'], key='x_label_every',
+                         help="Which bars get a label. The year options pick labels by their year "
+                              "(e.g. 1880, 1885, 1890); a highlighted bar always keeps its label. If labels "
+                              "crowd, pick a wider spacing, a smaller X label size, or rotate them.")
         st.slider("X Axis Label Size", *RANGES['x_sz'], key='x_sz')
         st.checkbox("X Axis Labels Bold", key='x_bold')
         st.slider("X Label Rotation (Degrees)", *RANGES['x_rot'], key='x_rot')
