@@ -53,10 +53,12 @@ SEASONS = {"Winter (Dec–Feb)": ((12, 1), (2, 28)), "Spring (Mar–May)": ((3, 
            "Summer (Jun–Aug)": ((6, 1), (8, 31)), "Fall (Sep–Nov)": ((9, 1), (11, 30))}
 RB_MODES = ["Full year", "Month", "Date range"]
 YR_PERIODS = ["Year to date", "Full year", "Month", "Season", "Custom dates"]
-NORMAL_PERIODS = {"1991–2020": (1991, 2020), "Full record": None}
+# "NCEI 1991–2020" always means NCEI's official normals (what the NWS climate report uses); never an approximation
+NORMAL_PERIODS = {"NCEI 1991–2020": "ncei", "Full record": None}
+IEM_FALLBACK_NOTE = "IEM 1991–2020 station averages (not official NCEI normals)"
 MONTHS = list(month_name)[1:]
 iem_defaults = {
-    'iem_state': "IA", 'iem_station': None, 'normal_period': "1991–2020",
+    'iem_state': "IA", 'iem_station': None, 'normal_period': "NCEI 1991–2020", 'normals_fallback': False,
     'rt_var': "Rain", 'rt_start': "Jan 1", 'rt_year': TODAY.year, 'rt_to_latest': True, 'rt_end': TODAY,
     'rt_extend': False,
     'rb_mode': "Full year", 'rb_month': MONTHS[TODAY.month - 1], 'rb_year': TODAY.year,
@@ -133,6 +135,10 @@ def load_stations(state):
 @st.cache_data(ttl=6 * 3600, show_spinner="Downloading the station's daily history from IEM…")
 def load_daily(station, state):
     return iem.fetch_daily(station, state)
+
+@st.cache_data(ttl=24 * 3600, show_spinner="Getting the official NCEI 1991–2020 normals from IEM…")
+def load_ncei(station, state, ncei_id):
+    return iem.fetch_ncei_normals(station, state, ncei_id)
 
 @st.cache_data(ttl=6 * 3600, show_spinner="Getting the autoplot data from IEM…")
 def load_autoplot(csv_url):
@@ -239,7 +245,11 @@ def handle_json():
         safe_val = sanitize_setting(k, v)
         if safe_val is not None: st.session_state[k] = safe_val
     for k, v in (p.get('iem_query') or {}).items():
-        if k in ('iem_state', 'normal_period', 'rt_var', 'rt_start', 'rb_mode', 'rb_month', 'yr_var', 'yr_period',
+        if k == 'normal_period' and v == "1991–2020":
+            v = "NCEI 1991–2020"  # Earlier versions' 1991–2020 setting; it now always means the official normals
+        if k == 'normals_fallback' and isinstance(v, bool):
+            st.session_state[k] = v
+        elif k in ('iem_state', 'normal_period', 'rt_var', 'rt_start', 'rb_mode', 'rb_month', 'yr_var', 'yr_period',
                  'yr_month', 'yr_season') and isinstance(v, str) and v in iem_choices(k):
             st.session_state[k] = v
         elif k == 'iem_station' and isinstance(v, str) and re.fullmatch(r"[A-Z0-9]{3,10}", v):
@@ -268,19 +278,38 @@ def unit_defaults(kind):
     fmt = {"precip": ('"', "2"), "snow": ('"', "1"), "temp": ("°", "0")}[kind]
     st.session_state.num_suffix, st.session_state.num_decimals = fmt
 
-def build_from_iem(daily, station_label):
-    """Compute the active preset's table from the station's daily record."""
+def build_from_iem(daily, station_label, ncei_id="", use_iem_normals=False):
+    """Compute the active preset's table from the station's daily record.
+
+    With "NCEI 1991–2020" chosen, the official NCEI normals are required. If they can't be had, nothing is built
+    and the problem is shown with an offer to use IEM's 1991–2020 station averages (`use_iem_normals`) instead.
+    """
     ss = st.session_state
     ct = ss.chart_type
-    normal_years = NORMAL_PERIODS[ss.normal_period]
-    normals = "normals 1991–2020" if normal_years else "normals from the full record"
+    ss.normals_problem = None
+    ncei, normal_years, notes_extra = None, None, []
+    normals = "full-record averages"
+    if ct != "Year Ranking" and NORMAL_PERIODS[ss.normal_period] == "ncei":
+        if use_iem_normals:
+            normal_years, normals = (1991, 2020), IEM_FALLBACK_NOTE
+            notes_extra = ["using IEM station averages, not official NCEI normals"]
+            ss.normals_fallback = True
+        else:
+            try:
+                ncei = load_ncei(ss.iem_station, ss.iem_state, ncei_id)
+            except iem.NormalsUnavailable as e:
+                # Remember which request failed so the offer only shows for it
+                ss.normals_problem = (ss.iem_station, ct, str(e))
+                return
+            normals = f"NCEI 1991–2020 normals ({ncei.attrs.get('ncei_id', ncei_id)}, via IEM)"
+            ss.normals_fallback = False
     span = f"{daily.index.min().year}–{daily.index.max().year}"
     try:
         if ct == "Running Total vs Normal":
             var = "precip" if ss.rt_var == "Rain" else "snow"
             m, d = RT_STARTS[ss.rt_start]
             df, info = iem.running_total(daily, var, ss.rt_year, m, d, None if ss.rt_to_latest else ss.rt_end,
-                                         normal_years, ss.rt_extend)
+                                         normal_years, ss.rt_extend, ncei=ncei)
             unit_defaults(var)
             ss.y_start_zero = True
             notes = [f"{info['missing_days']} missing days counted as 0"] if info['missing_days'] else []
@@ -302,7 +331,7 @@ def build_from_iem(daily, station_label):
                 st.error("There's no data for that period yet.")
                 return
             # Normals and records cover the whole period; actual highs/lows stop at the latest data (like IEM #113)
-            df, info = iem.record_band(daily, start, end, normal_years)
+            df, info = iem.record_band(daily, start, end, normal_years, ncei=ncei)
             unit_defaults("temp")
             if (end - start).days > 62:
                 ss.rb_style = "Bars"  # Daily high-low bars read best over long periods, as in IEM #113
@@ -332,7 +361,7 @@ def build_from_iem(daily, station_label):
     except iem.IEMError as e:
         st.error(str(e))
         return
-    store_table(dio.schema_key(ct), df, note, notes)
+    store_table(dio.schema_key(ct), df, note, notes + notes_extra)
 
 def ranking_window(daily):
     """(start (M, D), end (M, D), label) for the Year Ranking period choice."""
@@ -390,6 +419,7 @@ if is_preset:
         if stations is not None:
             ids = stations["id"].tolist()
             labels = dict(zip(stations["id"], stations["label"]))
+            ncei_ids = dict(zip(stations["id"], stations["ncei91"]))
             if st.session_state.iem_station not in ids: st.session_state.iem_station = None
             cn.selectbox("Station", ids, key='iem_station', format_func=lambda i: labels.get(i, i),
                          placeholder="Choose a station (type to search)",
@@ -444,7 +474,15 @@ if is_preset:
                 elif ss.yr_period == "Custom dates":
                     c3.date_input("Dates (the year is ignored)", key='yr_custom')
                 st.number_input("Leave out years missing more than this many days", 0, 60, key='yr_max_missing')
-            st.button("📥 Use this station data", type="primary", on_click=build_from_iem, args=(daily, station_label))
+            ncei_id = ncei_ids.get(ss.iem_station, "")
+            st.button("📥 Use this station data", type="primary", on_click=build_from_iem, args=(daily, station_label, ncei_id))
+            problem = ss.get('normals_problem')
+            if problem and problem[:2] == (ss.iem_station, ct) and NORMAL_PERIODS[ss.normal_period] == "ncei":
+                st.warning(f"{problem[2]} The chart wasn't changed. You can use IEM's averages of this station's own "
+                           "1991–2020 data instead (close to, but not, the official NCEI normals), try again, "
+                           "or choose Full record.")
+                st.button("Use IEM 1991–2020 averages instead", on_click=build_from_iem,
+                          args=(daily, station_label, ncei_id, True))
 
 c1, c2 = st.columns(2)
 with c1: st.file_uploader("📂 Import CSV/Excel", type=['csv', 'xlsx'], key=f"csv_uploader_{st.session_state.csv_uploader_key}", on_change=handle_upload)
