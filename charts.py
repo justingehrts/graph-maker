@@ -2,6 +2,7 @@
 import io
 import math
 import os
+import re
 from functools import lru_cache
 
 import matplotlib
@@ -173,6 +174,40 @@ def _thinned(n, keep=()):
     return sorted(set(range(0, n, step)) | {k for k in keep if 0 <= k < n})
 
 
+X_LABEL_STEPS = {"Every label": 1, "Every 2nd": 2, "Every 5th": 5, "Every 10th": 10,
+                 "Years ending in 0 or 5": 5, "Years ending in 0": 10}
+
+
+def _year_of(label):
+    m = re.match(r"\s*(\d{4})", str(label))
+    return int(m.group(1)) if m else None
+
+
+def label_positions(labels, s, keep=()):
+    """Which category labels to show, per the X Axis Labels setting. `keep` (e.g. a highlighted bar) always shows.
+
+    "Years ending in 0 / 0 or 5" pick labels by their year (works for "2024-25" seasons too); if the labels
+    aren't years they fall back to Auto.
+    """
+    n, mode = len(labels), s.get('x_label_every', "Auto")
+    keep = {k for k in keep if k is not None and 0 <= k < n}
+    if mode.startswith("Years"):
+        years = [_year_of(l) for l in labels]
+        if n and all(y is not None for y in years):
+            return _make_room({i for i, y in enumerate(years) if y % X_LABEL_STEPS[mode] == 0}, keep, X_LABEL_STEPS[mode])
+        mode = "Auto"
+    if mode == "Auto":
+        return _thinned(n, keep)
+    return _make_room(set(range(0, n, X_LABEL_STEPS[mode])), keep, X_LABEL_STEPS[mode])
+
+
+def _make_room(picked, keep, step):
+    """Add the `keep` labels, dropping regular labels too close to them to read (e.g. 2020 next to a kept 2025)."""
+    gap = math.ceil(step * 0.6)
+    near = {i for i in picked for k in keep if i != k and abs(i - k) < gap}
+    return sorted((picked - near) | keep)
+
+
 def render_basic(df, s, txt_col):
     fig, ax = _new_figure(s)
     labels = df["Label"].tolist()
@@ -210,7 +245,7 @@ def render_basic(df, s, txt_col):
                     ax.text(i, v + offset if v >= 0 else v - offset, format_number(v, s), ha='center',
                             va='bottom' if v >= 0 else 'top', zorder=5, **label_kw)
 
-    ticks = _thinned(len(labels), keep=[hl] if hl is not None else [])
+    ticks = label_positions(labels, s, keep=[hl])
     ax.set_xticks(ticks)
     ax.set_xticklabels([labels[i] for i in ticks])
     if labels: ax.set_xlim(-0.6, len(labels) - 0.4)
@@ -414,11 +449,15 @@ def render_year_ranking(df, s, txt_col):
         if text:
             # Sit above the bar's own value label when those are on
             _callout(ax, text, (x[i], vals[i]), s, txt_col, offset=(0, 30 + (s['value_sz'] * 1.8 if s['show_values'] else 0)))
+    mode = s.get('x_label_every', "Auto")
     if by_year:
-        ax.xaxis.set_major_locator(MaxNLocator(nbins=10, integer=True))
+        # Years are the axis values here, so "every 5th" and "ending in 0 or 5" are the same thing
+        ax.xaxis.set_major_locator(MaxNLocator(nbins=10, integer=True) if mode == "Auto"
+                                   else plt.MultipleLocator(X_LABEL_STEPS[mode]))
         if len(x): ax.set_xlim(min(x) - 1, max(x) + 1)
     else:
-        shown = [i for i in x if label_all or is_hl[i]]
+        shown = ([i for i in x if label_all or is_hl[i]] if mode == "Auto"
+                 else label_positions(d["Year"].tolist(), s, keep=[is_hl.index(True)] if any(is_hl) else []))
         ax.set_xticks(shown)
         ax.set_xticklabels([d["Year"].iloc[i] for i in shown])
         if len(d): ax.set_xlim(-0.7, len(d) - 0.3)
