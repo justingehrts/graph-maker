@@ -22,7 +22,10 @@ A Streamlit app for building chart graphics for on-air weather segments, exporte
 **Iowa Environmental Mesonet (IEM)**, Iowa State University: [mesonet.agron.iastate.edu](https://mesonet.agron.iastate.edu/).
 
 - **Presets:** for any state's climate stations, the app downloads the station's full daily record in a single request. It then works out running totals, normals, daily records and yearly rankings itself. "Area" stations are the long-term threaded records for a city.
-- **Normals:** computed from the station's own daily data for the chosen period (1991–2020 by default). They're close to, but not exactly the same as, NCEI's official normals, which are adjusted and smoothed.
+- **Normals:** two choices.
+  - **NCEI 1991–2020** (the default) uses NCEI's official 1991–2020 daily normals, the same ones the NWS daily climate report uses. IEM serves them through autoplots #172 (rain, snow) and #99 (highs, lows).
+  - **Full record** uses averages over the station's whole history, as IEM's #113 does.
+  - If the official normals can't be had, nothing is drawn with unofficial numbers. The app explains why and offers IEM's averages of the station's own 1991–2020 data instead, labeled as "not official NCEI normals".
 - **Records:** IEM's records can also differ slightly from NWS official records.
 - **Official numbers:** when you need them, paste or import data from xmACIS, NOWData or another source instead. The table accepts `T` (trace) and `M` (missing), and drops summary rows like "Sum" and "Mean".
 - **Autoplot import:** in "Import from an IEM autoplot", paste the address of a plot made at [mesonet.agron.iastate.edu/plotting/auto](https://mesonet.agron.iastate.edu/plotting/auto/). Then choose which of its columns go into the chart. Not every autoplot offers its data for download.

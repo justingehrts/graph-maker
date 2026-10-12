@@ -24,6 +24,10 @@ class IEMError(Exception):
     """A user-facing problem getting data from IEM."""
 
 
+class NormalsUnavailable(IEMError):
+    """Official NCEI normals couldn't be had for a station (none assigned, or IEM didn't return them)."""
+
+
 def _get(url, params=None):
     try:
         r = requests.get(url, params=params, timeout=TIMEOUT)
@@ -43,14 +47,15 @@ def fetch_stations(state):
     data = _get(f"{BASE}/api/1/network/{state}CLIMATE.json").json().get("data", [])
     df = pd.DataFrame(data)
     if df.empty:
-        return pd.DataFrame(columns=["id", "name", "county", "begin", "label"])
+        return pd.DataFrame(columns=["id", "name", "county", "begin", "ncei91", "label"])
     df["begin"] = pd.to_datetime(df.get("archive_begin"), errors="coerce").dt.year
     df["county"] = df.get("county").fillna("")
+    df["ncei91"] = df["ncei91"].fillna("") if "ncei91" in df else ""  # NCEI 1991-2020 normals station IEM assigns
     df = df[df["online"].fillna(False)] if "online" in df else df
     df["label"] = df.apply(lambda r: f"{r['name']} ({r['id']})"
                            + (f" · {r['county']} Co." if r["county"] else "")
                            + (f" · since {int(r['begin'])}" if pd.notna(r["begin"]) else ""), axis=1)
-    return df[["id", "name", "county", "begin", "label"]].sort_values("name").reset_index(drop=True)
+    return df[["id", "name", "county", "begin", "ncei91", "label"]].sort_values("name").reset_index(drop=True)
 
 
 def parse_daily_csv(text):
@@ -74,6 +79,36 @@ def fetch_daily(station, state, end=None):
     # Trim trailing days with no data yet (today, or a station that hasn't reported)
     has_data = df.notna().any(axis=1)
     return df.loc[: has_data[has_data].index.max()] if has_data.any() else df
+
+
+def fetch_ncei_normals(station, state, ncei_id):
+    """Official NCEI 1991-2020 daily normals for a station, by calendar day (MMDD, including 0229), via IEM.
+
+    Precipitation and snowfall come from autoplot #172's data (cprecip / csnow), highs and lows from #99's
+    (avg_high / avg_low, which IEM documents as the official NCEI 1991-2020 dataset). `ncei_id` is the normals
+    station IEM assigns (the station list's ncei91 field). Raises NormalsUnavailable if they can't be had.
+    """
+    if not ncei_id:
+        raise NormalsUnavailable("No official NCEI 1991–2020 normals are assigned to this station.")
+    net = f"network:{state}CLIMATE::station:{station}"
+    try:
+        accum = pd.read_csv(io.StringIO(_get(f"{BASE}/plotting/auto/plot/172/{net}::var:precip::sdate:0101.csv").text))
+        temps = pd.read_csv(io.StringIO(_get(f"{BASE}/plotting/auto/plot/99/{net}::year:2024.csv").text))  # Leap year: all 366 days
+    except IEMError as e:
+        raise NormalsUnavailable(f"Couldn't get the NCEI normals from IEM: {e}") from e
+    except Exception as e:
+        raise NormalsUnavailable("IEM returned the NCEI normals in an unexpected format.") from e
+    try:
+        # The normals repeat every year; take each calendar day's value from any year that has it
+        precip = accum.assign(md=accum["sday"].astype(str).str.zfill(4)).groupby("md")[["cprecip", "csnow"]].first()
+        hl = temps.assign(md=temps["sday"].astype(str).str.zfill(4)).set_index("md")[["avg_high", "avg_low"]]
+        normals = pd.concat([precip, hl], axis=1).set_axis(["precip", "snow", "high", "low"], axis=1)
+    except KeyError as e:
+        raise NormalsUnavailable("IEM's data for this station doesn't include NCEI normals.") from e
+    if len(normals) < 366 or normals.isna().any().any():
+        raise NormalsUnavailable("IEM's NCEI normals for this station are incomplete.")
+    normals.attrs["ncei_id"] = ncei_id
+    return normals.sort_index()
 
 
 # --- Shared helpers ---
@@ -124,14 +159,15 @@ def season_history(amounts, start_month, start_day, n_days, max_missing=3):
 
 
 def running_total(daily, var, year, start_month=1, start_day=1, end=None, normal_years=(1991, 2020),
-                  extend_normal=False, max_missing=3):
+                  extend_normal=False, max_missing=3, ncei=None):
     """Observed and normal running totals of `var` ('precip' or 'snow') for one season, plus the history
     IEM's autoplot #172 shows: the range of every other year's running total, and the years with the
     highest and lowest totals.
 
     Returns (DataFrame[Date, Observed, Normal, Highest Year, Lowest Year, Range Max, Range Min], info).
-    Missing days add nothing to the total. The normal is the cumulative sum of the average daily amount for
-    each calendar day over `normal_years`.
+    Missing days add nothing to the total. The normal is the cumulative sum of the daily normals: the official
+    NCEI ones when `ncei` (from fetch_ncei_normals) is given, else the station's average for each calendar day
+    over `normal_years` (None = the full record).
     """
     data_end = daily.index.max().date()
     start, stop, season_end = season_window(year, start_month, start_day, end, data_end)
@@ -140,8 +176,11 @@ def running_total(daily, var, year, start_month=1, start_day=1, end=None, normal
     dates = pd.date_range(start, season_end if extend_normal else stop)
     digits = 2 if var == "precip" else 1  # Precision people quote: 12.43" of rain, 23.5" of snow
     amounts = daily[var].mask(daily[var] == TRACE, 0.0)  # A trace adds nothing to a total
-    norm_daily = amounts[_normal_mask(daily, normal_years)]
-    climo = norm_daily.groupby(_sday(norm_daily.index)).mean()
+    if ncei is not None:
+        climo = ncei[var]
+    else:
+        norm_daily = amounts[_normal_mask(daily, normal_years)]
+        climo = norm_daily.groupby(_sday(norm_daily.index)).mean()
     normal = climo.reindex(_sday(dates)).fillna(0).cumsum().round(digits).to_numpy()
     obs_daily = amounts.reindex(pd.date_range(start, stop))
     observed = obs_daily.fillna(0).cumsum().round(digits).reindex(dates).to_numpy()
@@ -195,10 +234,15 @@ def _record_years(s, value):
     return " ".join(str(y) for y in sorted(s.index.year[s == value].unique())) if pd.notna(value) else ""
 
 
-def record_band(daily, start, end, normal_years=(1991, 2020)):
-    """Actual high/low with normal and (prior) record high/low for each day from start to end."""
+def record_band(daily, start, end, normal_years=(1991, 2020), ncei=None):
+    """Actual high/low with normal and (prior) record high/low for each day from start to end.
+
+    Normals are the official NCEI ones when `ncei` is given, else the station's averages over `normal_years`.
+    """
     dates = pd.date_range(start, end)
     climo = daily_climatology(daily, normal_years, exclude_years=sorted(set(dates.year)))
+    if ncei is not None:
+        climo["normal_high"], climo["normal_low"] = ncei["high"].reindex(climo.index), ncei["low"].reindex(climo.index)
     c = climo.reindex(_sday(dates))
     actual = daily.reindex(dates)
     out = pd.DataFrame({"Date": dates, "Actual High": actual["high"].to_numpy(), "Actual Low": actual["low"].to_numpy(),

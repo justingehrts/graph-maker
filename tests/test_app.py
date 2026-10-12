@@ -13,7 +13,8 @@ APP = str(Path(__file__).parent.parent / "app.py")
 FIX = Path(__file__).parent / "fixtures"
 DAILY = iem.parse_daily_csv(gzip.open(FIX / "iem_coop_IATAME.csv.gz", "rt").read())
 STATIONS = pd.DataFrame({"id": ["IATAME"], "name": ["Ames Area"], "county": ["Story"], "begin": [1893],
-                         "label": ["Ames Area (IATAME) · Story Co. · since 1893"]})
+                         "ncei91": ["USW00094989"], "label": ["Ames Area (IATAME) · Story Co. · since 1893"]})
+NCEI = pd.read_csv(FIX / "ncei_normals_OHTCMH.csv", dtype={"md": str}).set_index("md")  # Stand-in official normals
 
 
 @pytest.fixture(autouse=True)
@@ -21,6 +22,7 @@ def fake_iem(monkeypatch):
     st.cache_data.clear()
     monkeypatch.setattr(iem, "fetch_stations", lambda state: STATIONS)
     monkeypatch.setattr(iem, "fetch_daily", lambda station, state: DAILY.loc[:"2025-10-10"])
+    monkeypatch.setattr(iem, "fetch_ncei_normals", lambda station, state, ncei_id: NCEI)
 
 
 def new(**state):
@@ -157,6 +159,34 @@ def test_year_ranking_says_when_latest_year_is_left_out():
     at = use_station("Year Ranking", yr_var="Total snowfall", yr_period="Season", yr_season="Winter (Dec–Feb)")
     assert "2024-25 is left out" in at.session_state.source_notes["Year Ranking"]
     assert any("2024-25 is left out" in c.value for c in at.caption)
+
+
+def test_running_total_uses_official_ncei_normals():
+    at = use_station("Running Total vs Normal", rt_year=2025)
+    df = at.session_state.datasets["Running Total vs Normal"]
+    days = pd.date_range("2025-01-01", "2025-10-10").strftime("%m%d")
+    assert df["Normal"].iloc[-1] == round(NCEI["precip"].reindex(days).sum(), 2)
+    assert "NCEI 1991–2020 normals (USW00094989, via IEM)" in at.session_state.source_notes["Running Total vs Normal"]
+
+
+def test_full_record_option():
+    at = use_station("Record & Normal Band", rb_mode="Month", rb_month="July", rb_year=2025, normal_period="Full record")
+    assert "full-record averages" in at.session_state.source_notes["Record & Normal Band"]
+
+
+def test_missing_ncei_normals_offer_iem_fallback(monkeypatch):
+    def unavailable(station, state, ncei_id):
+        raise iem.NormalsUnavailable("Couldn't get the NCEI normals from IEM: timeout.")
+    monkeypatch.setattr(iem, "fetch_ncei_normals", unavailable)
+    at = new(chart_type="Running Total vs Normal", iem_state="IA", iem_station="IATAME", rt_year=2025)
+    before = at.session_state.datasets["Running Total vs Normal"].copy()
+    widget(at, "button", "📥 Use this station data").click().run()
+    assert problems(at) == [] and any("Couldn't get the NCEI normals" in w.value for w in at.warning)
+    assert at.session_state.datasets["Running Total vs Normal"].equals(before)  # Nothing unofficial built
+    widget(at, "button", "Use IEM 1991–2020 averages instead").click().run()
+    note = at.session_state.source_notes["Running Total vs Normal"]
+    assert "IEM 1991–2020 station averages (not official NCEI normals)" in note
+    assert at.session_state.normals_fallback is True and not at.warning
 
 
 def test_iem_outage_shows_friendly_error(monkeypatch):

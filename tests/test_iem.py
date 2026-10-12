@@ -161,3 +161,37 @@ def test_full_year_band_runs_past_latest_data(daily):
     later = out["Date"] > pd.Timestamp("2025-10-10")
     assert out.loc[later, ["Actual High", "Actual Low"]].isna().all().all()
     assert out[["Normal High", "Normal Low", "Record High", "Record Low"]].notna().all().all()
+
+
+def load_ncei_fixture():
+    # Official NCEI 1991-2020 daily normals for Columbus Area (OHTCMH), as IEM serves them (saved 2026-10-12)
+    n = pd.read_csv(FIX / "ncei_normals_OHTCMH.csv", dtype={"md": str}).set_index("md")
+    n.attrs["ncei_id"] = "USW00014821"
+    return n
+
+
+def test_ncei_normals_match_nws_climate_report():
+    # NWS daily climate report for Columbus, Oct 11 2026: precipitation since Jan 1 normal 33.80"
+    n = load_ncei_fixture()
+    assert len(n) == 366 and "0229" in n.index
+    days = pd.date_range("2026-01-01", "2026-10-11").strftime("%m%d")
+    assert round(n["precip"].reindex(days).sum(), 2) == 33.80
+
+
+def test_running_total_uses_ncei_normals(daily):
+    n = load_ncei_fixture()
+    out, _ = iem.running_total(daily, "precip", 2026, extend_normal=True, ncei=n)
+    assert out.loc[out["Date"] == "2026-10-11", "Normal"].iloc[0] == 33.80
+    # Station averages are only used when no official normals are passed
+    own, _ = iem.running_total(daily, "precip", 2026, extend_normal=True)
+    assert own["Normal"].iloc[-1] != out["Normal"].iloc[-1]
+
+
+def test_record_band_uses_ncei_normals(daily):
+    out, _ = iem.record_band(daily, date(2024, 2, 28), date(2024, 3, 1), ncei=load_ncei_fixture())
+    assert out["Normal High"].tolist() == [44.7, 44.9, 45.1] and out["Normal Low"].tolist() == [27.4, 27.5, 27.7]
+
+
+def test_no_ncei_station_raises():
+    with pytest.raises(iem.NormalsUnavailable, match="No official NCEI"):
+        iem.fetch_ncei_normals("XX0000", "IA", "")
