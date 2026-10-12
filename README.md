@@ -28,6 +28,7 @@ A Streamlit app for building chart graphics for on-air weather segments, exporte
   - If the official normals can't be had, nothing is drawn with unofficial numbers. The app explains why and offers IEM's averages of the station's own 1991–2020 data instead, labeled as "not official NCEI normals".
 - **Records:** IEM's records can also differ slightly from NWS official records.
 - **Official numbers:** when you need them, paste or import data from xmACIS, NOWData or another source instead. The table accepts `T` (trace) and `M` (missing), and drops summary rows like "Sum" and "Mean".
+- **Dates as values:** a column of dates, such as an xmACIS "last date" per year (`16-Oct`, `Oct 16`, `10/16` or `2025-10-16`), is read as dates. The chart then shows them as "Oct 16", ranks them as latest or earliest, and labels any trend line in days per decade.
 - **Autoplot import:** in "Import from an IEM autoplot", paste the address of a plot made at [mesonet.agron.iastate.edu/plotting/auto](https://mesonet.agron.iastate.edu/plotting/auto/). Then choose which of its columns go into the chart. Not every autoplot offers its data for download.
 
 ## Running locally

@@ -11,9 +11,9 @@ import matplotlib.font_manager as fm
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from matplotlib.ticker import MaxNLocator
+from matplotlib.ticker import FixedLocator, MaxNLocator
 
-from data_io import format_number
+from data_io import DATE_REF_YEAR, format_number
 from iem import ordinal, rank_of, record_counts
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -56,6 +56,32 @@ def nice_step(lo, hi, max_ticks=10):
     return next(m * mag for m in (1, 2, 2.5, 5, 10) if m * mag >= raw)
 
 
+DAY_STEPS = (1, 2, 5, 7, 14, 30, 61, 91)  # Round intervals when the values are dates
+
+
+def _is_dates(s):
+    return s.get('value_kind') == "Date"
+
+
+def _date_ticks(lo, hi, step):
+    """Day-of-year tick positions on calendar-friendly dates: month starts, the 1st and 15th, or weekly."""
+    from datetime import date, timedelta
+    ref = date(DATE_REF_YEAR, 1, 1)
+    keep = {91: lambda d: d.day == 1 and d.month in (1, 4, 7, 10), 61: lambda d: d.day == 1 and d.month % 2 == 1,
+            30: lambda d: d.day == 1, 14: lambda d: d.day in (1, 15), 7: lambda d: d.day in (1, 8, 15, 22)}.get(step)
+    ticks = []
+    for doy in range(math.ceil(lo), math.floor(hi) + 1):
+        d = ref + timedelta(days=doy - 1)
+        if (keep(d) if keep else doy % step == 0):
+            ticks.append(doy)
+    return ticks
+
+
+def _start_zero(s):
+    """Force the axis to 0 only for real numbers; day-of-year values have no meaningful zero."""
+    return s['y_start_zero'] and not _is_dates(s)
+
+
 # --- Shared styling ---
 
 def _new_figure(s):
@@ -72,8 +98,12 @@ def _label_kw(s, txt_col):
 def _style_y(ax, s, txt_col, y_lo, y_hi):
     """Y range, interval (widened if it would draw too many ticks), number format and fonts. Returns the interval used."""
     ax.set_ylim(y_lo, y_hi)
-    y_step = nice_step(y_lo, y_hi) if s['y_auto'] else max(s['y_step'], (y_hi - y_lo) / MAX_Y_TICKS)
-    ax.yaxis.set_major_locator(plt.MultipleLocator(y_step))
+    if s['y_auto'] and _is_dates(s):
+        y_step = next((d for d in DAY_STEPS if d >= (y_hi - y_lo) / 10), DAY_STEPS[-1])
+    else:
+        y_step = nice_step(y_lo, y_hi) if s['y_auto'] else max(s['y_step'], (y_hi - y_lo) / MAX_Y_TICKS)
+    ticks = _date_ticks(y_lo, y_hi, y_step) if s['y_auto'] and _is_dates(s) else []
+    ax.yaxis.set_major_locator(FixedLocator(ticks) if len(ticks) >= 2 else plt.MultipleLocator(y_step))
     # Whole-number intervals get whole-number labels (10, not 10.00) whatever the data-label decimals are
     axis_s = dict(s, num_decimals="0") if float(y_step).is_integer() and s['num_decimals'] != "Auto" else s
     ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: format_number(v, axis_s, units=s['axis_units'])))
@@ -157,7 +187,7 @@ def render_basic(df, s, txt_col):
     if hl is not None:
         c1[hl] = s['highlight_color']
 
-    y_lo, y_hi = y_limits(v1 + v2, s['y_start_zero'])
+    y_lo, y_hi = y_limits(v1 + v2, _start_zero(s))
     if s['chart_type'] == "Bar":
         width_val = max(0.1, 0.8 - s['bar_gap'])  # Hard floor applied
         if v2:
@@ -353,7 +383,7 @@ def render_year_ranking(df, s, txt_col):
         ax.scatter(x, vals, color=colors, s=s['marker_size'] ** 2, zorder=3)
     else:
         ax.bar(x, vals, width=0.8 if by_year or len(d) > 40 else 0.7, color=colors, zorder=2)
-    y_lo, y_hi = y_limits(vals, s['y_start_zero'])
+    y_lo, y_hi = y_limits(vals, _start_zero(s))
     label_kw = _label_kw(s, txt_col)
     if s['yr_avg_line'] and len(full):
         avg = full["Value"].mean()
@@ -366,8 +396,11 @@ def render_year_ranking(df, s, txt_col):
         xs = np.array([d["_x"].min(), d["_x"].max()])
         ax.plot(xs, intercept + slope * xs, color=s['yr_trend_color'], linewidth=max(1, s['line_width'] * 0.4),
                 linestyle="--", zorder=4)
-        ax.annotate(f"{format_number(slope * 10, s, signed=True)} per decade", xy=(xs[-1], intercept + slope * xs[-1]),
-                    xytext=(-6, 10), textcoords="offset points", ha="right", va="bottom", zorder=6, **label_kw)
+        rate = (f"{slope * 10:+.1f} days".replace("-", "\u2212") if _is_dates(s)
+                else format_number(slope * 10, s, signed=True))
+        # Below the line, so it doesn't collide with the average label above
+        ax.annotate(f"{rate} per decade", xy=(xs[-1], intercept + slope * xs[-1]),
+                    xytext=(-6, -10), textcoords="offset points", ha="right", va="top", zorder=6, **label_kw)
     label_all = len(d) <= MAX_YEAR_LABELS
     if s['show_values']:
         offset = (y_hi - y_lo) * 0.02

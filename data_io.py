@@ -2,7 +2,7 @@
 import csv
 import io
 import re
-from datetime import date
+from datetime import date, timedelta
 
 import numpy as np
 import pandas as pd
@@ -22,6 +22,9 @@ SCHEMAS = {
                              ("Normal Low", "num"), ("Record High", "num"), ("Record Low", "num")],
     "Year Ranking": [("Year", "text"), ("Value", "num")],
 }
+
+# How many leading columns of each layout a chart can't do without
+REQUIRED = {"Running Total vs Normal": 3, "Record & Normal Band": 3, "Year Ranking": 2}
 
 DESCRIPTIONS = {
     "Bar": "Open-ended bar chart: any labels with one or two series of values.",
@@ -74,8 +77,26 @@ def columns(key):
 
 # --- Number formatting ---
 
+# Date values (e.g. "last 80° day" by year) are stored as day of year in a non-leap reference year;
+# days past 365 belong to the following January, so winter seasons sort correctly
+DATE_REF_YEAR = 2001
+_MONTHS = {m: i for i, m in enumerate(["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov",
+                                       "dec"], start=1)}
+
+
+def day_of_year_text(v):
+    """Day-of-year value -> "Oct 18"."""
+    d = date(DATE_REF_YEAR, 1, 1) + timedelta(days=int(round(v)) - 1)
+    return f"{d:%b} {d.day}"
+
+
 def format_number(v, s, units=True, signed=False):
-    """Format a value per the Number Format settings; `units` adds the prefix/suffix, `signed` adds '+' to positives."""
+    """Format a value per the Number Format settings; `units` adds the prefix/suffix, `signed` adds '+' to positives.
+
+    When the values are dates (`value_kind` "Date") they show as "Oct 18"; prefix, suffix and decimals don't apply.
+    """
+    if s.get('value_kind') == "Date" and not signed:
+        return day_of_year_text(v)
     sep = ',' if s['num_thousands'] else ''
     if s['num_decimals'] == "Auto":
         txt = f"{v:{sep}.3f}".rstrip('0').rstrip('.')
@@ -89,12 +110,70 @@ def format_number(v, s, units=True, signed=False):
 
 # --- Cleaning ---
 
+def _month_day(cell):
+    """(month, day) from "16-Oct", "Oct 16", "October 16", "10/16", "2025-10-16" or "10/16/2025", else None."""
+    cell = cell.strip()
+    for pattern, order in ((r"(\d{1,2})[-\s]([A-Za-z]{3,9})\.?", "dm"), (r"([A-Za-z]{3,9})\.?[-\s](\d{1,2})", "md")):
+        m = re.fullmatch(pattern, cell)
+        if m:
+            day, name = (m.group(1), m.group(2)) if order == "dm" else (m.group(2), m.group(1))
+            month = _MONTHS.get(name[:3].lower())
+            return (month, int(day)) if month else None
+    m = re.fullmatch(r"(\d{4})-(\d{1,2})-(\d{1,2})(?:[ T].*)?", cell)
+    if m:
+        return int(m.group(2)), int(m.group(3))
+    m = re.fullmatch(r"(\d{1,2})/(\d{1,2})(?:/\d{2,4})?", cell)
+    if m:
+        return int(m.group(1)), int(m.group(2))
+    return None
+
+
+def dates_to_day_of_year(txt):
+    """Day-of-year numbers for a column of month/day text, or None if the column isn't mostly dates.
+
+    When the dates straddle the new year (e.g. first snows from November to January), January days continue past
+    365 so they sort after December.
+    """
+    filled = txt[(txt != "") & ~txt.str.lower().isin(MISSING_CODES)]
+    if filled.empty or pd.to_numeric(filled, errors="coerce").notna().all():
+        return None
+    parts = filled.map(_month_day)
+    if parts.notna().mean() < 0.6:
+        return None
+
+    def doy(md):
+        if md is None: return np.nan
+        month, day = md
+        if (month, day) == (2, 29): month, day = 3, 1  # No Feb 29 in the reference year
+        try:
+            return float(date(DATE_REF_YEAR, month, day).timetuple().tm_yday)
+        except ValueError:
+            return np.nan
+    days = parts.map(doy).reindex(txt.index)
+    if days.max() - days.min() > 183:
+        days = days.where(days >= 183, days + 365)
+    return days
+
+
 def clean_numbers(series, keep_missing):
     """Numbers from messy cells: strips units/flags (75°, 1,280, 0.25A), T = trace -> 0, M = missing.
 
+    A column of dates ("16-Oct", "Oct 16", "2025-10-16") becomes day-of-year numbers (counts["dates"] > 0).
     Missing cells stay blank when `keep_missing`, else become 0. Returns (numbers, counts dict).
     """
-    counts = {"trace": 0, "missing": 0, "bad": 0}
+    counts = {"trace": 0, "missing": 0, "bad": 0, "dates": 0}
+    if not pd.api.types.is_numeric_dtype(series) and not pd.api.types.is_datetime64_any_dtype(series):
+        txt = series.astype(object).where(series.notna(), "").astype(str).str.strip()
+        days = dates_to_day_of_year(txt)
+        if days is not None:
+            counts["dates"] = int(days.notna().sum())
+            counts["missing"] = int((txt.str.lower() == "m").sum())
+            counts["bad"] = int((days.isna() & (txt != "") & ~txt.str.lower().isin(MISSING_CODES)).sum())
+            return (days if keep_missing else days.fillna(0.0)).astype(float), counts
+    if pd.api.types.is_datetime64_any_dtype(series):  # Excel date cells
+        days = series.dt.dayofyear.astype(float) - (series.dt.is_leap_year & (series.dt.month > 2)).astype(float)
+        counts["dates"] = int(days.notna().sum())
+        return (days if keep_missing else days.fillna(0.0)), counts
     if pd.api.types.is_numeric_dtype(series):
         nums = series.astype(float)
         counts["missing"] = int(nums.isna().sum())
@@ -139,7 +218,7 @@ def normalize(df, key):
         if col not in df.columns:
             df[col] = "" if kind == "text" else (pd.NaT if kind == "date" else np.nan)
     df = df[columns(key)].reset_index(drop=True)
-    totals = {"trace": 0, "missing": 0, "bad": 0}
+    totals = {"trace": 0, "missing": 0, "bad": 0, "dates": 0}
     for col, kind in SCHEMAS[key]:
         if kind == "text":
             df[col] = df[col].astype(object).where(df[col].notna(), "").astype(str).str.strip()
@@ -162,6 +241,9 @@ def normalize(df, key):
     if bad.any():
         notes.append(f"dropped {_plural(int(bad.sum()), 'row')} that weren't data (summary rows or unreadable dates)")
         df = df[~bad].reset_index(drop=True)
+    if totals["dates"]:
+        notes.append("values read as dates")
+        df.attrs["value_kind"] = "Date"
     if totals["missing"] and key != "Basic": notes.append(f"{_plural(totals['missing'], 'missing value')} (M) left blank")
     if totals["trace"]: notes.append(f"{_plural(totals['trace'], 'trace value')} (T) counted as 0")
     if totals["bad"]: notes.append(f"{_plural(totals['bad'], 'non-numeric value')} "
@@ -196,7 +278,13 @@ def guess_mapping(cols, key):
                         used.add(src)
                         break
         if mapping:
-            return mapping
+            # Required columns whose headers weren't recognized (e.g. xmACIS "Last") take the next unused columns;
+            # optional ones are only ever matched by name
+            spare = [c for c in cols if c not in used]
+            for target in wanted[:REQUIRED[key]]:
+                if target not in mapping and spare:
+                    mapping[target] = spare.pop(0)
+            return {t: mapping[t] for t in wanted if t in mapping}
     return dict(zip(wanted, cols))
 
 

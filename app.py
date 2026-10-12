@@ -23,6 +23,7 @@ state_defaults = {
     'highlight_idx': "None", 'highlight_color': '#FFD700',
     'line_width': 8, 'marker_size': 15, 'marker_symbol': 'Circle',
     'x_rot': 0,
+    'value_kind': "Number",  # "Date": values are days of the year (e.g. last 80° day by year), shown as "Oct 18"
     'num_decimals': "Auto", 'num_prefix': "", 'num_suffix': "", 'num_thousands': False, 'axis_units': False,
     'grid_show': True, 'grid_color': '#808080', 'grid_alpha': 0.3, 'grid_width': 0.8, 'grid_style': "Solid",
     'date_labels': "Auto",
@@ -80,13 +81,15 @@ if 'datasets' not in st.session_state:
     st.session_state.editor_keys = {k: 0 for k in dio.SCHEMAS}
     st.session_state.source_notes = {k: "Sample data" for k in dio.SCHEMAS}
     st.session_state.autoplot_mappings = {}
+if 'table_kinds' not in st.session_state:
+    st.session_state.table_kinds = {}  # Whether each layout's table holds numbers or dates
 
 # Allowed values for every widget-bound setting; shared by the widgets and project loading
 TEXT_COLORS = {"White": "white", "Black": "black", "Navy": "#022E67"}
 MARKER_SYMBOLS = list(charts.MARKERS)
 GRID_STYLES = charts.GRID_STYLES
 CHOICES = {'chart_type': dio.CHART_TYPES, 'text_choice': list(TEXT_COLORS), 'marker_symbol': MARKER_SYMBOLS,
-           'num_decimals': ["Auto", "0", "1", "2", "3"], 'grid_style': list(GRID_STYLES),
+           'num_decimals': ["Auto", "0", "1", "2", "3"], 'grid_style': list(GRID_STYLES), 'value_kind': ["Number", "Date"],
            'date_labels': ["Auto", "Month names", "Month + day", "Day numbers"],
            'rt_input': ["Running totals", "Daily amounts"], 'rb_style': ["Lines", "Bars"],
            'rb_band_style': ["Layered", "Simple"], 'rb_mark_shape': ["Dot", "Star"],
@@ -157,11 +160,36 @@ def set_preset_color(target_key, color_hex):
     """Native callback to update color instantly without double-reruns."""
     st.session_state[target_key] = color_hex
 
+RANK_WORD_PAIRS = [("highest", "lowest"), ("wettest", "driest"), ("snowiest", "least snowy"), ("warmest", "coldest"),
+                   ("latest", "earliest")]
+
+def flip_rank_word():
+    """Switching Highest/Lowest swaps a standard ranking word for its opposite (wettest <-> driest)."""
+    ss = st.session_state
+    for hi, lo in RANK_WORD_PAIRS:
+        if ss.yr_word in (hi, lo):
+            ss.yr_word = hi if ss.yr_rank_dir == "Highest" else lo
+            return
+
+def set_value_kind(key, kind):
+    """Show the `key` table's values as numbers or as dates, with suitable defaults for dates."""
+    ss = st.session_state
+    ss.table_kinds[key] = kind
+    if kind == "Date":
+        ss.y_start_zero = False
+        if key == "Year Ranking":
+            ss.yr_word = "latest" if ss.yr_rank_dir == "Highest" else "earliest"
+            ss.yr_order = "By year"
+    elif ss.yr_word in ("latest", "earliest"):
+        ss.yr_word = "highest"
+    ss.value_kind = kind
+
 def store_table(key, df, note, notes=(), ignored=()):
     """Replace the `key` table, reset its editor and say what happened."""
     st.session_state.datasets[key] = df
     st.session_state.editor_keys[key] += 1
     st.session_state.source_notes[key] = note
+    set_value_kind(key, df.attrs.get("value_kind", "Number"))
     if key == "Running Total vs Normal":
         # Daily amounts (e.g. a NOWData month) go up and down; running totals never go down
         obs = df["Observed"].dropna()
@@ -254,6 +282,9 @@ def handle_json():
             st.session_state[k] = v
         elif k == 'iem_station' and isinstance(v, str) and re.fullmatch(r"[A-Z0-9]{3,10}", v):
             st.session_state[k] = v
+    kinds = p.get('table_kinds') if isinstance(p.get('table_kinds'), dict) else {}
+    st.session_state.table_kinds = {k: v for k, v in kinds.items() if k in dio.SCHEMAS and v in CHOICES['value_kind']}
+    st.session_state.table_kinds.setdefault(active_key(), st.session_state.value_kind)
     if isinstance(p.get('autoplot_mappings'), dict):
         st.session_state.autoplot_mappings.update({str(n): {str(a): str(b) for a, b in m.items()}
                                                    for n, m in p['autoplot_mappings'].items() if isinstance(m, dict)})
@@ -266,6 +297,9 @@ def commit_table():
     if k is not None:
         st.session_state.datasets[k] = df
         st.session_state.editor_keys[k] += 1
+    # Numbers or dates follow the table now on screen
+    new_key = active_key()
+    st.session_state.value_kind = st.session_state.table_kinds.get(new_key, "Number")
 
 def iem_choices(key):
     return {'iem_state': iem.STATES, 'normal_period': list(NORMAL_PERIODS), 'rt_var': ["Rain", "Snow"],
@@ -635,8 +669,8 @@ with st.sidebar:
                 st.selectbox("Highlight year", year_opts, key='yr_highlight', format_func=lambda y: y or "Latest year")
                 st.radio("Order", CHOICES['yr_order'], key='yr_order', horizontal=True,
                          help="By year matches IEM's plots; Sorted lines the years up from highest (or lowest).")
-                st.radio("Rank from", CHOICES['yr_rank_dir'], key='yr_rank_dir', horizontal=True,
-                         help="Highest for wettest/warmest/snowiest; Lowest for driest/coldest.")
+                st.radio("Rank from", CHOICES['yr_rank_dir'], key='yr_rank_dir', horizontal=True, on_change=flip_rank_word,
+                         help="Highest for wettest/warmest/snowiest/latest; Lowest for driest/coldest/earliest.")
                 st.text_input("Ranking word", key='yr_word', max_chars=TEXT_KEYS['yr_word'],
                               help='Used in the rank, e.g. "3rd wettest of 130 years".')
                 st.radio("Style", CHOICES['yr_style'], key='yr_style', horizontal=True)
@@ -682,6 +716,13 @@ with st.sidebar:
             st.checkbox("Show Values on Chart", key='show_values')
         st.slider("Data Label Font Size", *RANGES['value_sz'], key='value_sz')
         st.checkbox("Data Labels Bold", key='value_bold')
+        st.radio("Values are", CHOICES['value_kind'], key='value_kind', horizontal=True,
+                 format_func=lambda k: {"Number": "Numbers", "Date": "Dates"}[k],
+                 on_change=lambda: st.session_state.table_kinds.__setitem__(active_key(), st.session_state.value_kind),
+                 help="Dates (e.g. a last-frost date per year) show as \"Oct 18\"; picked automatically when you paste "
+                      "or import data.")
+        if st.session_state.value_kind == "Date":
+            st.caption("Dates ignore decimal places, prefix and suffix.")
         st.selectbox("Decimal Places", CHOICES['num_decimals'], key='num_decimals',
                      help="Auto shows up to 3 decimals and drops trailing zeros.")
         cp, cs = st.columns(2)
@@ -746,5 +787,6 @@ with col_dl2:
     datasets[key] = dio.to_records(df_clean)  # Include unsaved table edits for the chart on screen
     project_json = json.dumps({"version": 2, "chart_type": ct, "settings": settings, "datasets": datasets,
                                "source_notes": st.session_state.source_notes, "iem_query": iem_query,
-                               "autoplot_mappings": st.session_state.autoplot_mappings})
+                               "autoplot_mappings": st.session_state.autoplot_mappings,
+                               "table_kinds": st.session_state.table_kinds})
     st.download_button("💾 SAVE PROJECT (JSON)", data=project_json, file_name="max_graph_project.json", mime="application/json", width="stretch")
