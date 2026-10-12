@@ -26,16 +26,24 @@ state_defaults = {
     'num_decimals': "Auto", 'num_prefix': "", 'num_suffix': "", 'num_thousands': False, 'axis_units': False,
     'grid_show': True, 'grid_color': '#808080', 'grid_alpha': 0.3, 'grid_width': 0.8, 'grid_style': "Solid",
     'date_labels': "Auto",
-    # Running Total vs Normal
-    'rt_input': "Running totals", 'rt_obs_color': '#3FA9F5', 'rt_norm_color': '#FFFFFF',
-    'rt_surplus_color': '#2E9E4F', 'rt_deficit_color': '#B5651D', 'rt_fill_alpha': 0.35, 'rt_callout': False,
-    # Record & Normal Band
-    'rb_style': "Lines", 'rb_high_color': '#E8483B', 'rb_low_color': '#3FA9F5', 'rb_normal_color': '#8A94A6',
-    'rb_record_color': '#4A5260', 'rb_band_alpha': 0.45, 'rb_mark_records': True, 'rb_mark_color': '#FFD700',
-    'rb_callout': False,
-    # Year Ranking
-    'yr_order': "Highest first", 'yr_style': "Bars", 'yr_top_n': 0, 'yr_word': "highest", 'yr_highlight': "",
-    'yr_color': '#045EA8', 'yr_callout': False,
+    # Preset defaults follow IEM's autoplot colors, brightened only where a line would vanish on a dark background
+    # Running Total vs Normal (IEM #172)
+    'rt_input': "Running totals", 'rt_obs_color': '#FF2020', 'rt_norm_color': '#FFFFFF',
+    'rt_show_envelope': True, 'rt_env_color': '#D2B48C', 'rt_env_alpha': 1.0,
+    'rt_show_extremes': True, 'rt_high_color': '#3060FF', 'rt_low_color': '#A52A2A',
+    'rt_show_fill': False, 'rt_surplus_color': '#2E9E4F', 'rt_deficit_color': '#B5651D', 'rt_fill_alpha': 0.35,
+    'rt_callout': False,
+    # Record & Normal Band (IEM #113)
+    'rb_band_style': "Layered", 'rb_style': "Lines", 'rb_bar_color': '#775321', 'rb_high_color': '#E8483B',
+    'rb_low_color': '#3FA9F5', 'rb_normal_color': '#B4DAB3', 'rb_rec_high_color': '#F2C2A7',
+    'rb_rec_low_color': '#BBBBE2', 'rb_record_color': '#4A5260', 'rb_band_alpha': 1.0, 'rb_record_lines': True,
+    'rb_rec_high_line': '#E8231B', 'rb_rec_low_line': '#2E2EA0', 'rb_mark_records': True, 'rb_mark_shape': "Dot",
+    'rb_mark_color': '#FFD700', 'rb_callout': False,
+    # Year Ranking (IEM #107 / #189)
+    'yr_order': "Sorted", 'yr_rank_dir': "Highest", 'yr_style': "Bars", 'yr_top_n': 0, 'yr_word': "highest",
+    'yr_highlight': "", 'yr_color': '#FF0000', 'yr_hl_color': '#00A000', 'yr_avg_line': True,
+    'yr_avg_color': '#1F77B4', 'yr_avg_label': False, 'yr_trend': False, 'yr_trend_color': '#FFFFFF',
+    'yr_callout': False,
 }
 
 # Station-data (IEM) panel choices; saved with projects so the data can be fetched again
@@ -43,6 +51,7 @@ TODAY = date.today()
 RT_STARTS = {"Jan 1": (1, 1), "Jul 1": (7, 1), "Oct 1": (10, 1)}
 SEASONS = {"Winter (Dec–Feb)": ((12, 1), (2, 28)), "Spring (Mar–May)": ((3, 1), (5, 31)),
            "Summer (Jun–Aug)": ((6, 1), (8, 31)), "Fall (Sep–Nov)": ((9, 1), (11, 30))}
+RB_MODES = ["Full year", "Month", "Date range"]
 YR_PERIODS = ["Year to date", "Full year", "Month", "Season", "Custom dates"]
 NORMAL_PERIODS = {"1991–2020": (1991, 2020), "Full record": None}
 MONTHS = list(month_name)[1:]
@@ -50,7 +59,7 @@ iem_defaults = {
     'iem_state': "IA", 'iem_station': None, 'normal_period': "1991–2020",
     'rt_var': "Rain", 'rt_start': "Jan 1", 'rt_year': TODAY.year, 'rt_to_latest': True, 'rt_end': TODAY,
     'rt_extend': False,
-    'rb_mode': "Month", 'rb_month': MONTHS[TODAY.month - 1], 'rb_year': TODAY.year,
+    'rb_mode': "Full year", 'rb_month': MONTHS[TODAY.month - 1], 'rb_year': TODAY.year,
     'rb_range': (TODAY - timedelta(days=30), TODAY - timedelta(days=1)),
     'yr_var': "Total precipitation", 'yr_period': "Year to date", 'yr_month': MONTHS[TODAY.month - 1],
     'yr_season': list(SEASONS)[0], 'yr_custom': (date(TODAY.year, 1, 1), TODAY), 'yr_max_missing': 3,
@@ -78,16 +87,19 @@ CHOICES = {'chart_type': dio.CHART_TYPES, 'text_choice': list(TEXT_COLORS), 'mar
            'num_decimals': ["Auto", "0", "1", "2", "3"], 'grid_style': list(GRID_STYLES),
            'date_labels': ["Auto", "Month names", "Month + day", "Day numbers"],
            'rt_input': ["Running totals", "Daily amounts"], 'rb_style': ["Lines", "Bars"],
-           'yr_order': ["Highest first", "Lowest first"], 'yr_style': ["Bars", "Dots"]}
+           'rb_band_style': ["Layered", "Simple"], 'rb_mark_shape': ["Dot", "Star"],
+           'yr_order': ["Sorted", "By year"], 'yr_rank_dir': ["Highest", "Lowest"], 'yr_style': ["Bars", "Dots", "Line"]}
 RANGES = {
     'width': (100, 7680), 'height': (100, 7680), 'x_sz': (10, 100), 'y_sz': (10, 100),
     'value_sz': (5, 80), 'line_width': (1, 25), 'marker_size': (1, 50), 'x_rot': (-90, 90),
     'bar_gap': (0.0, 0.9), 'y_step': (0.01, 1e9), 'grid_alpha': (0.0, 1.0), 'grid_width': (0.5, 8.0),
-    'rt_fill_alpha': (0.0, 1.0), 'rb_band_alpha': (0.0, 1.0), 'yr_top_n': (0, 500),
+    'rt_fill_alpha': (0.0, 1.0), 'rt_env_alpha': (0.0, 1.0), 'rb_band_alpha': (0.0, 1.0), 'yr_top_n': (0, 500),
 }
 COLOR_KEYS = ['last_c1', 'last_c2', 'highlight_color', 'grid_color', 'rt_obs_color', 'rt_norm_color',
-              'rt_surplus_color', 'rt_deficit_color', 'rb_high_color', 'rb_low_color', 'rb_normal_color',
-              'rb_record_color', 'rb_mark_color', 'yr_color']
+              'rt_env_color', 'rt_high_color', 'rt_low_color', 'rt_surplus_color', 'rt_deficit_color',
+              'rb_bar_color', 'rb_high_color', 'rb_low_color', 'rb_normal_color', 'rb_rec_high_color',
+              'rb_rec_low_color', 'rb_record_color', 'rb_rec_high_line', 'rb_rec_low_line', 'rb_mark_color',
+              'yr_color', 'yr_hl_color', 'yr_avg_color', 'yr_trend_color']
 TEXT_KEYS = {'num_prefix': 8, 'num_suffix': 8, 'yr_word': 20, 'yr_highlight': 12}  # Free-text settings and their max length
 # Brand presets for the series colors: name -> hex
 COLOR_PRESETS = {"Navy": "#022E67", "Blue": "#045EA8", "Red": "#C80000", "White": "#FFFFFF"}
@@ -216,6 +228,9 @@ def handle_json():
         st.session_state.editor_keys[k] += 1
         st.session_state.source_notes[k] = str(p.get('source_notes', {}).get(k, f"Project: {f.name}"))[:200]
     settings = p.get('settings') if isinstance(p.get('settings'), dict) else {}
+    old_order = {"Highest first": "Highest", "Lowest first": "Lowest"}.get(settings.get('yr_order'))
+    if old_order:  # Earlier versions combined sort order and rank direction
+        settings['yr_order'], settings['yr_rank_dir'] = "Sorted", old_order
     if 'y_step' in settings and 'y_auto' not in settings:
         settings['y_auto'] = False  # Older projects chose their Y interval by hand
     # Only load known keys with valid values; anything else keeps its current setting
@@ -244,7 +259,7 @@ def commit_table():
 
 def iem_choices(key):
     return {'iem_state': iem.STATES, 'normal_period': list(NORMAL_PERIODS), 'rt_var': ["Rain", "Snow"],
-            'rt_start': list(RT_STARTS), 'rb_mode': ["Month", "Date range"], 'rb_month': MONTHS,
+            'rt_start': list(RT_STARTS), 'rb_mode': RB_MODES, 'rb_month': MONTHS,
             'yr_var': list(iem.RANK_VARS), 'yr_period': YR_PERIODS, 'yr_month': MONTHS,
             'yr_season': list(SEASONS)}[key]
 
@@ -270,19 +285,29 @@ def build_from_iem(daily, station_label):
             ss.y_start_zero = True
             notes = [f"{info['missing_days']} missing days counted as 0"] if info['missing_days'] else []
             note = f"IEM · {station_label} · {ss.rt_var.lower()} {info['season']} · {normals}"
+            if info['highest']:
+                unit = ss.num_suffix
+                word = ("wettest", "driest") if var == "precip" else ("snowiest", "least snowy")
+                note += (f" · {word[0]}: {info['highest'][0]} ({info['highest'][1]}{unit}), "
+                         f"{word[1]}: {info['lowest'][0]} ({info['lowest'][1]}{unit}) of {info['years']} years")
         elif ct == "Record & Normal Band":
             if ss.rb_mode == "Month":
                 mi = MONTHS.index(ss.rb_month) + 1
                 start, end = date(ss.rb_year, mi, 1), date(ss.rb_year, mi, monthrange(ss.rb_year, mi)[1])
+            elif ss.rb_mode == "Full year":
+                start, end = date(ss.rb_year, 1, 1), date(ss.rb_year, 12, 31)
             else:
                 start, end = ss.rb_range if len(ss.rb_range) == 2 else (ss.rb_range[0], ss.rb_range[0])
-            end = min(end, daily.index.max().date())
-            if end < start:
+            if start > daily.index.max().date():
                 st.error("There's no data for that period yet.")
                 return
+            # Normals and records cover the whole period; actual highs/lows stop at the latest data (like IEM #113)
             df, info = iem.record_band(daily, start, end, normal_years)
             unit_defaults("temp")
-            notes = [f"{info['missing_days']} days with missing temperatures"] if info['missing_days'] else []
+            if (end - start).days > 62:
+                ss.rb_style = "Bars"  # Daily high-low bars read best over long periods, as in IEM #113
+            missing = int(df.loc[df["Date"] <= daily.index.max(), ["Actual High", "Actual Low"]].isna().any(axis=1).sum())
+            notes = [f"{missing} days with missing temperatures"] if missing else []
             shown = "–".join(sorted({str(start.year), str(end.year)}))
             note = f"IEM · {station_label} · records {span}, not counting {shown} · {normals}"
         else:
@@ -293,8 +318,9 @@ def build_from_iem(daily, station_label):
             if col in ("high", "low", "avg"): ss.num_decimals = "1"
             ss.y_start_zero = col not in ("high", "low", "avg")
             words = {"precip": ("wettest", "driest"), "snow": ("snowiest", "least snowy")}.get(col, ("warmest", "coldest"))
-            ss.yr_word = words[ss.yr_order != "Highest first"]
+            ss.yr_word = words[ss.yr_rank_dir != "Highest"]
             ss.yr_highlight = ""
+            ss.yr_order = "By year"  # What IEM shows (#107); "Sorted" is a sidebar click away
             skipped = info['skipped_years']
             notes = [f"left out {len(skipped)} year{'s' if len(skipped) != 1 else ''} with more than "
                      f"{ss.yr_max_missing} missing days"] if skipped else []
@@ -338,14 +364,21 @@ def apply_autoplot(num, title, raw, targets):
     st.session_state.autoplot_mappings[str(num)] = chosen
     store_table(key, df, f"IEM autoplot #{num}: {title}", notes)
 
-# --- 4. DATA INPUT ---
+# --- 4. CHART TYPE & DATA INPUT ---
+def chart_type_label(c):
+    return {"Running Total vs Normal": "★ Running Total", "Record & Normal Band": "★ Record Band",
+            "Year Ranking": "★ Year Ranking"}.get(c, c)
+
 ct = st.session_state.chart_type
 key = active_key()
 is_preset = ct in dio.PRESET_TYPES
+# Chart type decides which table and options appear, so it sits above the data rather than in the styling sidebar
+st.radio("Chart Type", dio.CHART_TYPES, key='chart_type', format_func=chart_type_label, horizontal=True,
+         on_change=commit_table, help="★ Presets are climate charts that can pull station data from IEM.")
+st.caption(dio.DESCRIPTIONS[ct])
 st.subheader("Data Input")
 
 if is_preset:
-    st.caption(f"**{ct}:** {dio.DESCRIPTIONS[ct]}")
     with st.expander("🛰️ Station data from the Iowa Environmental Mesonet (IEM)", expanded=True):
         cs, cn = st.columns([1, 3])
         cs.selectbox("State", iem.STATES, key='iem_state')
@@ -389,15 +422,17 @@ if is_preset:
                 st.radio("Normal period", list(NORMAL_PERIODS), key='normal_period', horizontal=True)
             elif ct == "Record & Normal Band":
                 c1, c2, c3 = st.columns(3)
-                c1.radio("Period", ["Month", "Date range"], key='rb_mode', horizontal=True)
-                if ss.rb_mode == "Month":
-                    c2.selectbox("Month", MONTHS, key='rb_month')
+                c1.radio("Period", RB_MODES, key='rb_mode')
+                if ss.rb_mode == "Date range":
+                    year_end = date(last.year, 12, 31)  # Normals and records can run past the latest data
+                    ss.rb_range = tuple(min(max(d, first), year_end) for d in ss.rb_range)
+                    c2.date_input("Dates", key='rb_range', min_value=first, max_value=year_end)
+                else:
+                    if ss.rb_mode == "Month": c2.selectbox("Month", MONTHS, key='rb_month')
                     if ss.rb_year not in years: ss.rb_year = years[0]
                     c3.selectbox("Year", years, key='rb_year')
-                else:
-                    ss.rb_range = tuple(min(max(d, first), last) for d in ss.rb_range)
-                    c2.date_input("Dates", key='rb_range', min_value=first, max_value=last)
-                st.radio("Normal period", list(NORMAL_PERIODS), key='normal_period', horizontal=True)
+                st.radio("Normal period", list(NORMAL_PERIODS), key='normal_period', horizontal=True,
+                         help="IEM's #113 plot uses averages over the full record; pick Full record to match it.")
             else:
                 c1, c2, c3 = st.columns(3)
                 c1.selectbox("Variable", list(iem.RANK_VARS), key='yr_var')
@@ -435,7 +470,7 @@ with st.expander("🌐 Import from an IEM autoplot"):
             targets = dio.columns(key)
             saved = st.session_state.autoplot_mappings.get(str(num), {})
             options = ["(none)"] + [str(c) for c in raw.columns]
-            guess = dio.guess_mapping(options[1:], key)  # By header name (presets) or by position (basic)
+            guess = dio.guess_autoplot_mapping(raw.rename(columns=str), key)
             for col, target in zip(st.columns(len(targets)), targets):
                 default = saved.get(target)
                 if default not in options: default = guess.get(target, "(none)")
@@ -480,9 +515,6 @@ def color_swatches(target):
                    f".st-key-{btn_key} button p {{ font-size: 0.75rem; font-weight: 600; }}")
     st.html(f"<style>{''.join(css)}</style>")
 
-def chart_type_label(c):
-    return c if c in dio.BASIC_TYPES else f"★ {c}"
-
 # Widgets are bound to session state via `key`, so each change applies on the first try
 with st.sidebar:
     st.header("Graphic Config")
@@ -492,8 +524,6 @@ with st.sidebar:
         cw, ch = st.columns(2)
         cw.number_input("Width (px)", *RANGES['width'], step=10, key='width')
         ch.number_input("Height (px)", *RANGES['height'], step=10, key='height')
-        st.selectbox("Chart Type", dio.CHART_TYPES, key='chart_type', format_func=chart_type_label, on_change=commit_table,
-                     help="Bar and Line are open-ended charts. ★ Presets are climate charts that can pull station data from IEM.")
         if ct == "Line":
             st.slider("Line Thickness", *RANGES['line_width'], key='line_width')
             st.slider("Point Size", *RANGES['marker_size'], key='marker_size')
@@ -510,42 +540,83 @@ with st.sidebar:
                          help="Daily amounts are added up for you.")
                 st.slider("Line Thickness", *RANGES['line_width'], key='line_width')
                 a, b = st.columns(2)
-                a.color_picker("Observed line", key='rt_obs_color')
-                b.color_picker("Normal line", key='rt_norm_color')
-                a.color_picker("Above normal fill", key='rt_surplus_color')
-                b.color_picker("Below normal fill", key='rt_deficit_color')
-                st.slider("Fill opacity", *RANGES['rt_fill_alpha'], key='rt_fill_alpha')
+                a.color_picker("This year", key='rt_obs_color')
+                b.color_picker("Normal (dashed)", key='rt_norm_color')
+                st.checkbox("Range of all years (shaded)", key='rt_show_envelope')
+                if st.session_state.rt_show_envelope:
+                    a, b = st.columns(2)
+                    a.color_picker("Range color", key='rt_env_color')
+                    b.slider("Range opacity", *RANGES['rt_env_alpha'], key='rt_env_alpha')
+                st.checkbox("Highest and lowest years", key='rt_show_extremes')
+                if st.session_state.rt_show_extremes:
+                    a, b = st.columns(2)
+                    a.color_picker("Highest year", key='rt_high_color')
+                    b.color_picker("Lowest year", key='rt_low_color')
+                st.checkbox("Shade above/below normal", key='rt_show_fill')
+                if st.session_state.rt_show_fill:
+                    a, b = st.columns(2)
+                    a.color_picker("Above normal", key='rt_surplus_color')
+                    b.color_picker("Below normal", key='rt_deficit_color')
+                    st.slider("Shading opacity", *RANGES['rt_fill_alpha'], key='rt_fill_alpha')
                 st.checkbox('Call-out on chart (e.g. 2.31" above normal)', key='rt_callout')
             elif ct == "Record & Normal Band":
-                st.radio("Show actual temperatures as", CHOICES['rb_style'], key='rb_style', horizontal=True)
-                if st.session_state.rb_style == "Lines":
-                    st.slider("Line Thickness", *RANGES['line_width'], key='line_width')
+                st.radio("Band style", CHOICES['rb_band_style'], key='rb_band_style', horizontal=True,
+                         help="Layered matches IEM: warm record-high band, normal range, cool record-low band.")
                 a, b = st.columns(2)
-                a.color_picker("Actual high" if st.session_state.rb_style == "Lines" else "Bars", key='rb_high_color')
-                if st.session_state.rb_style == "Lines": b.color_picker("Actual low", key='rb_low_color')
-                a.color_picker("Normal band", key='rb_normal_color')
-                b.color_picker("Record band", key='rb_record_color')
+                a.color_picker("Normal range", key='rb_normal_color')
+                if st.session_state.rb_band_style == "Layered":
+                    b.color_picker("Record-high band", key='rb_rec_high_color')
+                    a.color_picker("Record-low band", key='rb_rec_low_color')
+                else:
+                    b.color_picker("Record band", key='rb_record_color')
                 st.slider("Band opacity", *RANGES['rb_band_alpha'], key='rb_band_alpha')
-                st.checkbox("Mark new records ★", key='rb_mark_records')
+                if st.session_state.rb_band_style == "Layered":
+                    st.checkbox("Record lines", key='rb_record_lines')
+                    if st.session_state.rb_record_lines:
+                        a, b = st.columns(2)
+                        a.color_picker("Record-high line", key='rb_rec_high_line')
+                        b.color_picker("Record-low line", key='rb_rec_low_line')
+                st.radio("Show actual temperatures as", CHOICES['rb_style'], key='rb_style', horizontal=True)
+                a, b = st.columns(2)
+                if st.session_state.rb_style == "Bars":
+                    a.color_picker("Bars", key='rb_bar_color')
+                else:
+                    a.color_picker("Actual high", key='rb_high_color')
+                    b.color_picker("Actual low", key='rb_low_color')
+                    st.slider("Line Thickness", *RANGES['line_width'], key='line_width')
+                st.checkbox("Mark new records", key='rb_mark_records')
                 if st.session_state.rb_mark_records:
                     a, b = st.columns(2)
-                    a.color_picker("Record marker", key='rb_mark_color')
-                    b.slider("Marker size", *RANGES['marker_size'], key='marker_size')
+                    a.radio("Marker", CHOICES['rb_mark_shape'], key='rb_mark_shape', horizontal=True)
+                    b.color_picker("Marker color", key='rb_mark_color')
+                    st.slider("Marker size", *RANGES['marker_size'], key='marker_size')
                 st.checkbox("Call-out on chart (e.g. 2 record highs)", key='rb_callout')
             else:
                 year_opts = [""] + sorted(df_clean.dropna(subset=["Value"])["Year"].astype(str).unique(), reverse=True)
                 if st.session_state.yr_highlight not in year_opts: st.session_state.yr_highlight = ""
                 st.selectbox("Highlight year", year_opts, key='yr_highlight', format_func=lambda y: y or "Latest year")
-                st.radio("Order", CHOICES['yr_order'], key='yr_order', horizontal=True)
-                st.radio("Style", CHOICES['yr_style'], key='yr_style', horizontal=True)
-                if st.session_state.yr_style == "Dots": st.slider("Dot size", *RANGES['marker_size'], key='marker_size')
-                st.number_input("Show top N years (0 = all)", *RANGES['yr_top_n'], key='yr_top_n',
-                                help="The highlighted year is always shown.")
+                st.radio("Order", CHOICES['yr_order'], key='yr_order', horizontal=True,
+                         help="By year matches IEM's plots; Sorted lines the years up from highest (or lowest).")
+                st.radio("Rank from", CHOICES['yr_rank_dir'], key='yr_rank_dir', horizontal=True,
+                         help="Highest for wettest/warmest/snowiest; Lowest for driest/coldest.")
                 st.text_input("Ranking word", key='yr_word', max_chars=TEXT_KEYS['yr_word'],
                               help='Used in the rank, e.g. "3rd wettest of 130 years".')
+                st.radio("Style", CHOICES['yr_style'], key='yr_style', horizontal=True)
+                if st.session_state.yr_style != "Bars": st.slider("Dot size", *RANGES['marker_size'], key='marker_size')
+                if st.session_state.yr_order == "Sorted":
+                    st.number_input("Show top N years (0 = all)", *RANGES['yr_top_n'], key='yr_top_n',
+                                    help="The highlighted year is always shown.")
                 a, b = st.columns(2)
-                a.color_picker("Bar color", key='yr_color')
-                b.color_picker("Highlight color", key='highlight_color')
+                a.color_picker("Year color", key='yr_color')
+                b.color_picker("Highlight color", key='yr_hl_color')
+                st.checkbox("Average line", key='yr_avg_line')
+                if st.session_state.yr_avg_line:
+                    a, b = st.columns(2)
+                    a.color_picker("Average color", key='yr_avg_color')
+                    b.checkbox("Label it", key='yr_avg_label')
+                if st.session_state.yr_order == "By year":
+                    st.checkbox("Trend line", key='yr_trend', help="A straight-line fit, labeled with its change per decade.")
+                    if st.session_state.yr_trend: st.color_picker("Trend color", key='yr_trend_color')
                 st.checkbox("Call-out on chart (e.g. 3rd wettest of 130 years)", key='yr_callout')
 
     with st.expander("🎨 Colors", expanded=not is_preset):

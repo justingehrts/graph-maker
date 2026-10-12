@@ -53,10 +53,10 @@ def test_every_setting_change_applies_first_time():
 
 def test_hidden_controls_keep_their_values():
     at = new()
-    widget(at, "selectbox", "Chart Type").set_value("Line").run()
+    widget(at, "radio", "Chart Type").set_value("Line").run()
     widget(at, "slider", "Line Thickness").set_value(20).run()
-    widget(at, "selectbox", "Chart Type").set_value("Bar").run()
-    widget(at, "selectbox", "Chart Type").set_value("Line").run()
+    widget(at, "radio", "Chart Type").set_value("Bar").run()
+    widget(at, "radio", "Chart Type").set_value("Line").run()
     assert at.session_state.line_width == 20 and problems(at) == []
 
 
@@ -88,18 +88,18 @@ def test_paste_with_extra_and_duplicate_columns():
 @pytest.mark.parametrize("chart", ["Running Total vs Normal", "Record & Normal Band", "Year Ranking"])
 def test_presets_render_sample_data(chart):
     at = new()
-    widget(at, "selectbox", "Chart Type").set_value(chart).run()
+    widget(at, "radio", "Chart Type").set_value(chart).run()
     assert problems(at) == []
     assert any(m.value.startswith("**") for m in at.markdown)  # The summary line
 
 
 def test_switching_chart_types_keeps_each_table():
     at = new()
-    widget(at, "selectbox", "Chart Type").set_value("Year Ranking").run()
+    widget(at, "radio", "Chart Type").set_value("Year Ranking").run()
     at.text_area[0].input("Year\tValue\n2001\t5\n2002\t7\n").run()
     widget(at, "button", "Use pasted data").click().run()
-    widget(at, "selectbox", "Chart Type").set_value("Bar").run()
-    widget(at, "selectbox", "Chart Type").set_value("Year Ranking").run()
+    widget(at, "radio", "Chart Type").set_value("Bar").run()
+    widget(at, "radio", "Chart Type").set_value("Year Ranking").run()
     assert at.session_state.datasets["Year Ranking"]["Year"].tolist() == ["2001", "2002"]
     assert at.session_state.datasets["Basic"]["Label"].iloc[0] == "Mon"
 
@@ -118,12 +118,24 @@ def test_running_total_from_iem():
     assert at.session_state.source_notes["Running Total vs Normal"].startswith("IEM · Ames Area (IATAME)")
     assert at.session_state.num_suffix == '"'
     assert any("Through Oct 10" in m.value for m in at.markdown)
+    assert "wettest:" in at.session_state.source_notes["Running Total vs Normal"]
+    assert df["Range Max"].notna().all()
 
 
 def test_record_band_from_iem():
     at = use_station("Record & Normal Band", rb_mode="Month", rb_month="July", rb_year=2025)
     df = at.session_state.datasets["Record & Normal Band"]
     assert len(df) == 31 and at.session_state.num_suffix == "°"
+
+
+def test_record_band_full_year_like_autoplot_113():
+    at = use_station("Record & Normal Band", rb_mode="Full year", rb_year=2025)
+    df = at.session_state.datasets["Record & Normal Band"]
+    assert len(df) == 365 and df["Actual High"].iloc[-1] != df["Actual High"].iloc[-1]  # Blank after Oct 10
+    assert at.session_state.rb_style == "Bars"
+    for style in ("Simple", "Layered"):
+        widget(at, "radio", "Band style").set_value(style).run()
+        assert problems(at) == []
 
 
 def test_year_ranking_from_iem():
@@ -133,6 +145,11 @@ def test_year_ranking_from_iem():
     assert df["Year"].iloc[-1] == "2024-25"
     assert at.session_state.yr_word == "snowiest"
     assert any("2024-25:" in m.value and "snowiest of" in m.value for m in at.markdown)
+    assert at.session_state.yr_order == "By year"
+    widget(at, "checkbox", "Trend line").check().run()
+    widget(at, "radio", "Order").set_value("Sorted").run()
+    widget(at, "radio", "Style").set_value("Line").run()
+    assert problems(at) == []
 
 
 def test_year_ranking_says_when_latest_year_is_left_out():
@@ -148,6 +165,29 @@ def test_iem_outage_shows_friendly_error(monkeypatch):
     monkeypatch.setattr(iem, "fetch_stations", down)
     at = new(chart_type="Running Total vs Normal")
     assert not at.exception and any("Couldn't get data" in e.value for e in at.error)
+
+
+def test_big_basic_chart_thins_labels():
+    import charts
+    labels = [str(d) for d in pd.date_range("2000-01-01", "2000-12-31").day]
+    assert len(charts._thinned(len(labels))) <= 26 and charts._thinned(5) == [0, 1, 2, 3, 4]
+    assert 100 in charts._thinned(366, keep=[100])
+    at = new()
+    at.text_area[0].input("\n".join(f"{l}\t{i % 40}" for i, l in enumerate(labels))).run()
+    widget(at, "button", "Use pasted data").click().run()
+    assert problems(at) == [] and len(at.session_state.datasets["Basic"]) == 366
+
+
+def test_autoplot_113_guess_for_basic(monkeypatch):
+    raw = pd.DataFrame({"valid": ["2000-01-01T00:00:00", "2000-01-02T00:00:00"], "month": [1, 1], "day": [1, 2],
+                        "years": [148, 148], "avg_high": [38.8, 38.6], "max_high": [67, 64]})
+    monkeypatch.setattr(iem, "autoplot_meta", lambda n: {"title": "Daily Climatology", "data": True})
+    monkeypatch.setattr(iem, "fetch_autoplot_csv", lambda url: raw)
+    at = new()
+    at.text_input(key="ap_url").input("https://mesonet.agron.iastate.edu/plotting/auto/?q=113&station=OHTCMH").run()
+    assert [at.selectbox(key=f"ap_map_113_{t}").value for t in ("Label", "Value 1", "Value 2")] == ["valid", "avg_high", "max_high"]
+    widget(at, "button", "Use this autoplot data").click().run()
+    assert at.session_state.datasets["Basic"]["Label"].tolist() == ["2000-01-01", "2000-01-02"]
 
 
 def test_autoplot_import(monkeypatch):

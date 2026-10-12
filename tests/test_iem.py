@@ -142,3 +142,22 @@ def test_network_errors_are_friendly(monkeypatch):
     monkeypatch.setattr(iem.requests, "get", boom)
     with pytest.raises(iem.IEMError, match="Couldn't get data"):
         iem.fetch_stations("IA")
+
+
+def test_running_total_history_like_autoplot_172(daily):
+    out, info = iem.running_total(daily, "precip", 2025, end=date(2025, 10, 10))
+    assert {"Highest Year", "Lowest Year", "Range Max", "Range Min"} <= set(out.columns)
+    # The range covers every other year, and the highest/lowest years' final totals are its ends
+    assert (out["Range Max"] >= out["Range Min"]).all()
+    assert out["Highest Year"].iloc[-1] == out["Range Max"].iloc[-1] == info["highest"][1]
+    assert out["Lowest Year"].iloc[-1] == out["Range Min"].iloc[-1] == info["lowest"][1]
+    assert info["highest"][0] != "2025" and info["years"] > 100
+
+
+def test_full_year_band_runs_past_latest_data(daily):
+    part = daily.loc[:"2025-10-10"]
+    out, _ = iem.record_band(part, date(2025, 1, 1), date(2025, 12, 31))
+    assert len(out) == 365
+    later = out["Date"] > pd.Timestamp("2025-10-10")
+    assert out.loc[later, ["Actual High", "Actual Low"]].isna().all().all()
+    assert out[["Normal High", "Normal Low", "Record High", "Record Low"]].notna().all().all()
