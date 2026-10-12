@@ -1,4 +1,6 @@
 """Parsing and cleanup of pasted / imported tables in the formats people copy from."""
+from pathlib import Path
+
 import pandas as pd
 import pytest
 
@@ -111,3 +113,44 @@ def test_rows_wider_than_header_are_padded():
 def test_quoted_csv_values():
     df, _, _ = load('Day,Total\n"Oct 1","1,280"\n', "Basic")
     assert df["Label"].tolist() == ["Oct 1"] and df["Value 1"].tolist() == [1280.0]
+
+
+# --- Date values (e.g. an xmACIS "last date" by year) ---
+
+XMACIS_LAST = (Path(__file__).parent / "fixtures" / "xmacis_last_date_by_year.txt").read_text()
+
+
+def test_xmacis_last_date_by_year():
+    df, notes, ignored = load(XMACIS_LAST, "Year Ranking")
+    assert len(df) == 148 and df["Value"].notna().all() and ignored == []
+    assert df["Year"].iloc[0] == "1878" and df["Value"].iloc[0] == 274  # Oct 1
+    assert df["Year"].iloc[-1] == "2025" and df["Value"].iloc[-1] == 291  # Oct 18
+    assert "values read as dates" in notes and df.attrs["value_kind"] == "Date"
+
+
+@pytest.mark.parametrize("cell", ["16-Oct", "Oct 16", "October 16", "Oct. 16", "10/16", "2025-10-16", "10/16/2025"])
+def test_date_forms(cell):
+    days, counts = dio.clean_numbers(pd.Series([cell, "1-Oct"]), keep_missing=True)
+    assert days.tolist() == [289, 274] and counts["dates"] == 2
+
+
+def test_dates_across_new_year_sort_after_december():
+    days, _ = dio.clean_numbers(pd.Series(["20-Nov", "5-Jan", "30-Dec", "M"]), keep_missing=True)
+    assert days.iloc[1] > days.iloc[2] > days.iloc[0] and pd.isna(days.iloc[3])
+    assert dio.day_of_year_text(days.iloc[1]) == "Jan 5"
+
+
+def test_numbers_are_not_dates():
+    nums, counts = dio.clean_numbers(pd.Series(["0.25", "T", "M", "1,280"]), keep_missing=True)
+    assert counts["dates"] == 0 and nums.iloc[0] == 0.25 and nums.iloc[3] == 1280
+
+
+def test_required_columns_fill_by_position_but_optional_ones_dont():
+    raw = pd.DataFrame({"Date": ["2025-07-01"], "Hi": [90], "Lo": [70], "Departure": [3]})
+    mapping = dio.guess_mapping(raw.columns, "Record & Normal Band")
+    assert mapping == {"Date": "Date", "Actual High": "Hi", "Actual Low": "Lo"}  # "Departure" isn't a record
+
+
+def test_date_formatting():
+    s = {"value_kind": "Date", "num_thousands": False, "num_decimals": "2", "num_prefix": "", "num_suffix": '"'}
+    assert dio.format_number(291, s) == "Oct 18" and dio.format_number(365, s) == "Dec 31"

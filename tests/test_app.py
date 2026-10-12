@@ -197,6 +197,38 @@ def test_iem_outage_shows_friendly_error(monkeypatch):
     assert not at.exception and any("Couldn't get data" in e.value for e in at.error)
 
 
+XMACIS_LAST = (FIX / "xmacis_last_date_by_year.txt").read_text()
+
+
+def test_date_values_in_year_ranking():
+    at = new()
+    widget(at, "radio", "Chart Type").set_value("Year Ranking").run()
+    at.text_area[0].input(XMACIS_LAST).run()
+    widget(at, "button", "Use pasted data").click().run()
+    assert problems(at) == []
+    ss = at.session_state
+    assert ss.value_kind == "Date" and ss.yr_word == "latest" and ss.yr_order == "By year"
+    df = ss.datasets["Year Ranking"]
+    summary = next(m.value for m in at.markdown if m.value.startswith("**2025:"))
+    assert "latest of 148 years (Oct 18)" in summary and "average Oct" in summary
+    # Trend line labeled in days per decade; Lowest flips the word to "earliest"
+    widget(at, "checkbox", "Trend line").check().run()
+    widget(at, "radio", "Rank from").set_value("Lowest").run()
+    assert problems(at) == [] and ss.yr_word == "earliest"
+    assert len(df) == 148
+
+
+def test_date_values_in_bar_then_numbers_switch_back():
+    at = new()
+    at.text_area[0].input(XMACIS_LAST).run()
+    widget(at, "button", "Use pasted data").click().run()
+    assert problems(at) == [] and at.session_state.value_kind == "Date"
+    assert at.session_state.datasets["Basic"]["Value 1"].iloc[-1] == 291
+    at.text_area[0].input("Day\tHigh\nMon\t70\nTue\t72\n").run()
+    widget(at, "button", "Use pasted data").click().run()
+    assert problems(at) == [] and at.session_state.value_kind == "Number"
+
+
 def test_big_basic_chart_thins_labels():
     import charts
     labels = [str(d) for d in pd.date_range("2000-01-01", "2000-12-31").day]
@@ -230,3 +262,13 @@ def test_autoplot_import(monkeypatch):
     assert problems(at) == []
     assert at.session_state.datasets["Year Ranking"]["Value"].tolist() == [30.5, 41.2, 28.0]
     assert at.session_state.autoplot_mappings["189"] == {"Year": "yr", "Value": "data"}
+
+
+def test_station_defaults_to_columbus(monkeypatch):
+    columbus = pd.DataFrame({"id": ["OHTCMH"], "name": ["Columbus Area"], "county": ["Franklin"], "begin": [1878],
+                             "ncei91": ["USW00014821"], "label": ["Columbus Area (OHTCMH) · Franklin Co. · since 1878"]})
+    asked = []
+    monkeypatch.setattr(iem, "fetch_stations", lambda state: asked.append(state) or columbus)
+    at = new(chart_type="Running Total vs Normal")
+    assert at.session_state.iem_state == "OH" and at.session_state.iem_station == "OHTCMH" and asked == ["OH"]
+    assert at.selectbox(key="iem_station").value == "OHTCMH" and problems(at) == []
