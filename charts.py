@@ -9,7 +9,9 @@ matplotlib.use("Agg")
 import matplotlib.dates as mdates
 import matplotlib.font_manager as fm
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
+from matplotlib.ticker import MaxNLocator
 
 from data_io import format_number
 from iem import ordinal, rank_of, record_counts
@@ -79,7 +81,7 @@ def _style_y(ax, s, txt_col, y_lo, y_hi):
     return y_step
 
 
-def _finish(fig, ax, s, txt_col, y_lo, y_hi):
+def _finish(fig, ax, s, txt_col, y_lo, y_hi, zero_line=True):
     """Fonts, spines, zero line and gridlines shared by every chart; returns PNG bytes."""
     ax.tick_params(axis='x', colors=txt_col, width=3, length=8, zorder=4)
     for tick in ax.get_yticklabels():
@@ -91,7 +93,7 @@ def _finish(fig, ax, s, txt_col, y_lo, y_hi):
     ax.spines['right'].set_visible(False)
     for side in ['left', 'bottom']:
         ax.spines[side].set_linewidth(4); ax.spines[side].set_color(txt_col); ax.spines[side].set_zorder(4)
-    if y_lo < 0 < y_hi:
+    if zero_line and y_lo < 0 < y_hi:
         ax.axhline(0, color=txt_col, linewidth=2, zorder=4)  # Baseline when the data crosses zero
     if s['grid_show']:
         ax.grid(True, axis='y', color=s['grid_color'], alpha=s['grid_alpha'], linewidth=s['grid_width'],
@@ -130,6 +132,17 @@ def _callout(ax, text, xy, s, txt_col, ha="center", offset=(0, 30)):
 
 # --- Basic bar / line ---
 
+MAX_X_LABELS = 25  # More rows than this get every Nth label: readable on air and much faster to draw
+
+
+def _thinned(n, keep=()):
+    """Tick positions for n categories: all of them, or every Nth plus any in `keep`."""
+    if n <= MAX_X_LABELS:
+        return list(range(n))
+    step = math.ceil(n / MAX_X_LABELS)
+    return sorted(set(range(0, n, step)) | {k for k in keep if 0 <= k < n})
+
+
 def render_basic(df, s, txt_col):
     fig, ax = _new_figure(s)
     labels = df["Label"].tolist()
@@ -140,8 +153,9 @@ def render_basic(df, s, txt_col):
 
     # Highlight applies to series 1 at the chosen index
     c1 = [s['last_c1']] * len(v1)
-    if s['highlight_idx'] != "None" and s['highlight_idx'] < len(c1):
-        c1[s['highlight_idx']] = s['highlight_color']
+    hl = s['highlight_idx'] if s['highlight_idx'] != "None" and s['highlight_idx'] < len(c1) else None
+    if hl is not None:
+        c1[hl] = s['highlight_color']
 
     y_lo, y_hi = y_limits(v1 + v2, s['y_start_zero'])
     if s['chart_type'] == "Bar":
@@ -166,13 +180,15 @@ def render_basic(df, s, txt_col):
                     ax.text(i, v + offset if v >= 0 else v - offset, format_number(v, s), ha='center',
                             va='bottom' if v >= 0 else 'top', zorder=5, **label_kw)
 
-    ax.set_xticks(x)
-    ax.set_xticklabels(labels)
+    ticks = _thinned(len(labels), keep=[hl] if hl is not None else [])
+    ax.set_xticks(ticks)
+    ax.set_xticklabels([labels[i] for i in ticks])
+    if labels: ax.set_xlim(-0.6, len(labels) - 0.4)
     y_step = _style_y(ax, s, txt_col, y_lo, y_hi)
     return _finish(fig, ax, s, txt_col, y_lo, y_hi), y_step
 
 
-# --- Running total vs normal ---
+# --- Running total vs normal (IEM autoplot #172 style) ---
 
 def running_series(df, s):
     """(dates, observed running total, normal running total), adding up daily amounts when the table holds those."""
@@ -185,19 +201,38 @@ def running_series(df, s):
     return pd.to_datetime(d["Date"]), obs, norm
 
 
+def _optional(df, col):
+    """A context column as floats, or None when the table doesn't have it (e.g. pasted official data)."""
+    if col not in df.columns: return None
+    vals = df[col].astype(float)
+    return vals if vals.notna().any() else None
+
+
 def render_running_total(df, s, txt_col):
     fig, ax = _new_figure(s)
     dates, obs, norm = running_series(df, s)
+    d = df.dropna(subset=["Date"]).sort_values("Date")
     lw = s['line_width']
+    values = list(obs) + list(norm)
+    rmax, rmin = _optional(d, "Range Max"), _optional(d, "Range Min")
+    if s['rt_show_envelope'] and rmax is not None and rmin is not None:
+        ax.fill_between(dates, rmin, rmax, color=s['rt_env_color'], alpha=s['rt_env_alpha'], linewidth=0, zorder=1.2)
+        values += list(rmax) + list(rmin)
+    if s['rt_show_extremes']:
+        for col, color in (("Highest Year", s['rt_high_color']), ("Lowest Year", s['rt_low_color'])):
+            vals = _optional(d, col)
+            if vals is not None:
+                ax.plot(dates, vals, color=color, linewidth=max(1, lw * 0.6), zorder=2.5)
+                values += list(vals)
     ax.plot(dates, norm, color=s['rt_norm_color'], linewidth=max(1, lw * 0.6), linestyle="--", zorder=3)
     both = obs.notna() & norm.notna()
-    if both.any():
+    if s['rt_show_fill'] and both.any():
         ax.fill_between(dates, obs, norm, where=both & (obs >= norm), interpolate=True, color=s['rt_surplus_color'],
                         alpha=s['rt_fill_alpha'], linewidth=0, zorder=2)
         ax.fill_between(dates, obs, norm, where=both & (obs < norm), interpolate=True, color=s['rt_deficit_color'],
                         alpha=s['rt_fill_alpha'], linewidth=0, zorder=2)
     ax.plot(dates, obs, color=s['rt_obs_color'], linewidth=lw, zorder=4, solid_capstyle="round")
-    y_lo, y_hi = y_limits(list(obs) + list(norm), s['y_start_zero'])
+    y_lo, y_hi = y_limits(values, s['y_start_zero'])
     if s['rt_callout'] and obs.last_valid_index() is not None:
         i = obs.last_valid_index()
         dep = obs[i] - norm[i]
@@ -208,44 +243,60 @@ def render_running_total(df, s, txt_col):
     return _finish(fig, ax, s, txt_col, y_lo, y_hi), y_step
 
 
-# --- Record & normal band ---
+# --- Record & normal band (IEM autoplot #113 style) ---
 
 def render_record_band(df, s, txt_col):
     fig, ax = _new_figure(s)
     d = df.dropna(subset=["Date"]).sort_values("Date").reset_index(drop=True)
     x = pd.to_datetime(d["Date"])
-    alpha = s['rb_band_alpha']
-    rec = d[["Record Low", "Record High"]].notna().all(axis=1)
-    if rec.any():
-        ax.fill_between(x, d["Record Low"], d["Record High"], where=rec, color=s['rb_record_color'], alpha=alpha,
-                        linewidth=0, zorder=1.5, step=None)
-    nrm = d[["Normal Low", "Normal High"]].notna().all(axis=1)
+    alpha, lw = s['rb_band_alpha'], s['line_width']
+    rh, rl, nh, nl = d["Record High"], d["Record Low"], d["Normal High"], d["Normal Low"]
+    step = "mid"  # Daily values drawn as day-wide steps, as IEM does
+    if s['rb_band_style'] == "Layered":
+        # Record high down to normal high (warm), normal range, normal low down to record low (cool)
+        warm = rh.notna() & nh.notna()
+        cool = rl.notna() & nl.notna()
+        if warm.any():
+            ax.fill_between(x, nh, rh, where=warm, step=step, color=s['rb_rec_high_color'], alpha=alpha, linewidth=0, zorder=1.4)
+        if cool.any():
+            ax.fill_between(x, rl, nl, where=cool, step=step, color=s['rb_rec_low_color'], alpha=alpha, linewidth=0, zorder=1.4)
+        if s['rb_record_lines']:
+            ax.step(x, rh, where=step, color=s['rb_rec_high_line'], linewidth=max(1, lw * 0.2), zorder=1.7)
+            ax.step(x, rl, where=step, color=s['rb_rec_low_line'], linewidth=max(1, lw * 0.2), zorder=1.7)
+        normal_alpha = alpha
+    else:
+        rec = rh.notna() & rl.notna()
+        if rec.any():
+            ax.fill_between(x, rl, rh, where=rec, step=step, color=s['rb_record_color'], alpha=alpha, linewidth=0, zorder=1.5)
+        normal_alpha = min(1.0, alpha + 0.3)
+    nrm = nl.notna() & nh.notna()
     if nrm.any():
-        ax.fill_between(x, d["Normal Low"], d["Normal High"], where=nrm, color=s['rb_normal_color'],
-                        alpha=min(1.0, alpha + 0.3), linewidth=0, zorder=1.6)
-    lw = s['line_width']
+        ax.fill_between(x, nl, nh, where=nrm, step=step, color=s['rb_normal_color'], alpha=normal_alpha,
+                        linewidth=0, zorder=1.6)
     if s['rb_style'] == "Bars":
         ok = d[["Actual Low", "Actual High"]].notna().all(axis=1)
-        ax.bar(x[ok], (d["Actual High"] - d["Actual Low"])[ok], bottom=d["Actual Low"][ok], width=0.65,
-               color=s['rb_high_color'], zorder=3)
+        ax.bar(x[ok], (d["Actual High"] - d["Actual Low"])[ok], bottom=d["Actual Low"][ok], width=0.8,
+               color=s['rb_bar_color'], zorder=3)
     else:
         ax.plot(x, d["Actual High"], color=s['rb_high_color'], linewidth=lw, zorder=3)
         ax.plot(x, d["Actual Low"], color=s['rb_low_color'], linewidth=lw, zorder=3)
     highs, lows = record_counts(d)
     if s['rb_mark_records']:
-        size = max(60, (s['marker_size'] * 1.6) ** 2)
-        ax.scatter(x[highs], d.loc[highs, "Actual High"], marker="*", s=size, color=s['rb_mark_color'],
-                   edgecolors=txt_col, linewidths=1, zorder=5)
-        ax.scatter(x[lows], d.loc[lows, "Actual Low"], marker="*", s=size, color=s['rb_mark_color'],
-                   edgecolors=txt_col, linewidths=1, zorder=5)
+        star = s['rb_mark_shape'] == "Star"
+        size = max(40, (s['marker_size'] * (1.6 if star else 1.0)) ** 2)
+        for mask, col in ((highs, "Actual High"), (lows, "Actual Low")):
+            ax.scatter(x[mask], d.loc[mask, col], marker="*" if star else "o", s=size, color=s['rb_mark_color'],
+                       edgecolors=txt_col if star else "#3A3A1A", linewidths=1.5, zorder=5)
     if s['rb_callout']:
         ax.text(0.01, 0.98, record_text(int(highs.sum()), int(lows.sum())), transform=ax.transAxes, ha="left",
                 va="top", zorder=6, **_label_kw(s, txt_col))
     values = d[["Actual High", "Actual Low", "Normal High", "Normal Low", "Record High", "Record Low"]].stack().tolist()
-    y_lo, y_hi = y_limits(values, False)
+    lo, hi = (min(values), max(values)) if values else (0.0, 100.0)
+    pad = (hi - lo or 10) * 0.05
+    y_lo, y_hi = lo - pad, hi + pad * (3 if s['rb_callout'] else 1)  # Snug, like IEM; room for the call-out
     _date_axis(ax, x, s)
     y_step = _style_y(ax, s, txt_col, y_lo, y_hi)
-    return _finish(fig, ax, s, txt_col, y_lo, y_hi), y_step
+    return _finish(fig, ax, s, txt_col, y_lo, y_hi, zero_line=False), y_step
 
 
 def record_text(n_highs, n_lows):
@@ -253,7 +304,7 @@ def record_text(n_highs, n_lows):
     return " · ".join(parts) or "No records set"
 
 
-# --- Year ranking ---
+# --- Year ranking (IEM autoplot #107 / #189 style) ---
 
 def ranking_highlight(df, s):
     """The year to highlight: the setting if present in the table, else the latest year."""
@@ -264,50 +315,82 @@ def ranking_highlight(df, s):
 
 
 def rank_text(df, s, year):
-    r = rank_of(df, year, highest_first=s['yr_order'] == "Highest first")
+    r = rank_of(df, year, highest_first=s['yr_rank_dir'] == "Highest")
     if not r: return None
     rank, tied, count = r
     return f"{'T-' if tied else ''}{ordinal(rank)} {s['yr_word']} of {count} years".strip()
 
 
+def _year_numbers(labels):
+    """Starting year of each label ("2024-25" -> 2024), or None if any label has no year."""
+    nums = labels.str.extract(r"^(\d{4})")[0]
+    return None if nums.isna().any() else nums.astype(int)
+
+
 def render_year_ranking(df, s, txt_col):
     fig, ax = _new_figure(s)
-    d = df.dropna(subset=["Value"]).copy()
-    d["Year"] = d["Year"].astype(str)
-    d = d.sort_values(["Value", "Year"], ascending=[s['yr_order'] != "Highest first", True]).reset_index(drop=True)
-    hl = ranking_highlight(d, s)
-    if s['yr_top_n'] and len(d) > s['yr_top_n']:
-        top = d.iloc[:s['yr_top_n']]
-        d = top if hl in top["Year"].tolist() else pd.concat([top, d[d["Year"] == hl]], ignore_index=True)
-    x = list(range(len(d)))
+    full = df.dropna(subset=["Value"]).copy()
+    full["Year"] = full["Year"].astype(str)
+    hl = ranking_highlight(full, s)
+    years = _year_numbers(full["Year"])
+    by_year = s['yr_order'] == "By year" and years is not None
+    if by_year:
+        d = full.assign(_x=years).sort_values("_x").reset_index(drop=True)
+        x = d["_x"].tolist()
+    else:
+        d = full.sort_values(["Value", "Year"], ascending=[s['yr_rank_dir'] == "Lowest", True]).reset_index(drop=True)
+        if s['yr_top_n'] and len(d) > s['yr_top_n']:
+            top = d.iloc[:s['yr_top_n']]
+            d = top if hl in top["Year"].tolist() else pd.concat([top, d[d["Year"] == hl]], ignore_index=True)
+        x = list(range(len(d)))
     vals = d["Value"].tolist()
     is_hl = (d["Year"] == hl).tolist()
-    colors = [s['highlight_color'] if h else s['yr_color'] for h in is_hl]
+    colors = [s['yr_hl_color'] if h else s['yr_color'] for h in is_hl]
     if s['yr_style'] == "Dots":
         ax.scatter(x, vals, color=colors, s=s['marker_size'] ** 2, zorder=3)
+    elif s['yr_style'] == "Line":
+        ax.plot(x, vals, color=s['yr_color'], linewidth=max(1, s['line_width'] * 0.5), zorder=2.5)
+        ax.scatter(x, vals, color=colors, s=s['marker_size'] ** 2, zorder=3)
     else:
-        ax.bar(x, vals, width=0.7 if len(d) <= 40 else 0.85, color=colors, zorder=2)
+        ax.bar(x, vals, width=0.8 if by_year or len(d) > 40 else 0.7, color=colors, zorder=2)
     y_lo, y_hi = y_limits(vals, s['y_start_zero'])
+    label_kw = _label_kw(s, txt_col)
+    if s['yr_avg_line'] and len(full):
+        avg = full["Value"].mean()
+        ax.axhline(avg, color=s['yr_avg_color'], linewidth=max(1, s['line_width'] * 0.4), zorder=4)
+        if s['yr_avg_label']:
+            ax.annotate(f"Avg: {format_number(avg, s)}", xy=(1, avg), xycoords=("axes fraction", "data"),
+                        xytext=(-6, 6), textcoords="offset points", ha="right", va="bottom", zorder=6, **label_kw)
+    if s['yr_trend'] and by_year and len(d) > 2:
+        slope, intercept = np.polyfit(d["_x"], d["Value"], 1)
+        xs = np.array([d["_x"].min(), d["_x"].max()])
+        ax.plot(xs, intercept + slope * xs, color=s['yr_trend_color'], linewidth=max(1, s['line_width'] * 0.4),
+                linestyle="--", zorder=4)
+        ax.annotate(f"{format_number(slope * 10, s, signed=True)} per decade", xy=(xs[-1], intercept + slope * xs[-1]),
+                    xytext=(-6, 10), textcoords="offset points", ha="right", va="bottom", zorder=6, **label_kw)
     label_all = len(d) <= MAX_YEAR_LABELS
     if s['show_values']:
         offset = (y_hi - y_lo) * 0.02
-        for i, v in enumerate(vals):
-            if label_all or is_hl[i]:
-                ax.text(i, v + offset if v >= 0 else v - offset, format_number(v, s), ha='center',
-                        va='bottom' if v >= 0 else 'top', zorder=5, **_label_kw(s, txt_col))
+        for xi, v, h in zip(x, vals, is_hl):
+            if label_all or h:
+                ax.text(xi, v + offset if v >= 0 else v - offset, format_number(v, s), ha='center',
+                        va='bottom' if v >= 0 else 'top', zorder=5, **label_kw)
     if s['yr_callout'] and hl in d["Year"].tolist():
         i = is_hl.index(True)
-        text = rank_text(df.dropna(subset=["Value"]), s, hl)
+        text = rank_text(full, s, hl)
         if text:
             # Sit above the bar's own value label when those are on
-            _callout(ax, text, (i, vals[i]), s, txt_col, offset=(0, 30 + (s['value_sz'] * 1.8 if s['show_values'] else 0)))
-    shown = [i for i in x if label_all or is_hl[i]]
-    ax.set_xticks(shown)
-    ax.set_xticklabels([d["Year"].iloc[i] for i in shown])
-    if len(d): ax.set_xlim(-0.7, len(d) - 0.3)
+            _callout(ax, text, (x[i], vals[i]), s, txt_col, offset=(0, 30 + (s['value_sz'] * 1.8 if s['show_values'] else 0)))
+    if by_year:
+        ax.xaxis.set_major_locator(MaxNLocator(nbins=10, integer=True))
+        if len(x): ax.set_xlim(min(x) - 1, max(x) + 1)
+    else:
+        shown = [i for i in x if label_all or is_hl[i]]
+        ax.set_xticks(shown)
+        ax.set_xticklabels([d["Year"].iloc[i] for i in shown])
+        if len(d): ax.set_xlim(-0.7, len(d) - 0.3)
     y_step = _style_y(ax, s, txt_col, y_lo, y_hi)
-    png = _finish(fig, ax, s, txt_col, y_lo, y_hi)
-    return png, y_step
+    return _finish(fig, ax, s, txt_col, y_lo, y_hi), y_step
 
 
 RENDERERS = {"Bar": render_basic, "Line": render_basic, "Running Total vs Normal": render_running_total,
@@ -343,5 +426,5 @@ def summary(df, s):
         text = rank_text(d, s, hl) if hl else None
         if not text: return None
         value = d.loc[d["Year"].astype(str) == hl, "Value"].iloc[0]
-        return f"{hl}: {text} ({format_number(value, s)})"
+        return f"{hl}: {text} ({format_number(value, s)}) · average {format_number(d['Value'].mean(), s)}"
     return None

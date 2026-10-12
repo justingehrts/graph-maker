@@ -1,4 +1,5 @@
 """Table layouts per chart type, plus parsing/cleanup for pasted, imported and loaded data. No Streamlit here."""
+import csv
 import io
 import re
 from datetime import date
@@ -14,16 +15,22 @@ DATED_TYPES = ["Running Total vs Normal", "Record & Normal Band"]
 # Column layouts. Bar and Line share the "Basic" table.
 SCHEMAS = {
     "Basic": [("Label", "text"), ("Value 1", "num"), ("Value 2", "num")],
-    "Running Total vs Normal": [("Date", "date"), ("Observed", "num"), ("Normal", "num")],
+    # The last four are optional context (IEM #172 style): the highest/lowest years' totals and the range of all years
+    "Running Total vs Normal": [("Date", "date"), ("Observed", "num"), ("Normal", "num"), ("Highest Year", "num"),
+                                ("Lowest Year", "num"), ("Range Max", "num"), ("Range Min", "num")],
     "Record & Normal Band": [("Date", "date"), ("Actual High", "num"), ("Actual Low", "num"), ("Normal High", "num"),
                              ("Normal Low", "num"), ("Record High", "num"), ("Record Low", "num")],
     "Year Ranking": [("Year", "text"), ("Value", "num")],
 }
 
 DESCRIPTIONS = {
-    "Running Total vs Normal": "Season-to-date rain or snow against the normal running total, with the gap shaded.",
-    "Record & Normal Band": "Daily highs and lows over the normal range and the record range; marks new records.",
-    "Year Ranking": "Every year on record, sorted, with one year highlighted and ranked.",
+    "Bar": "Open-ended bar chart: any labels with one or two series of values.",
+    "Line": "Open-ended line chart: any labels with one or two series of values.",
+    "Running Total vs Normal": "Season-to-date rain or snow against normal, with the range and extremes of all years "
+                               "(like IEM autoplot #172).",
+    "Record & Normal Band": "Daily highs and lows over the normal and record ranges, with new records marked "
+                            "(like IEM autoplot #113).",
+    "Year Ranking": "Every year on record with one year highlighted and ranked (like IEM autoplots #107 / #189).",
 }
 
 
@@ -43,6 +50,10 @@ ALIASES = {
     "Normal Low": ["normalmin", "normalmint", "avglow", "averagelow", "climolow", "lowavg", "lownormal", "nmllow"],
     "Record High": ["recordmax", "recordmaxt", "highmax", "maxhigh", "recordhightemp", "rechigh"],
     "Record Low": ["recordmin", "recordmint", "lowmin", "minlow", "recordlowtemp", "reclow"],
+    "Highest Year": ["highestyear", "wettestyear", "maxyear"],
+    "Lowest Year": ["lowestyear", "driestyear", "minyear"],
+    "Range Max": ["rangemax", "envelopemax", "maxaccum"],
+    "Range Min": ["rangemin", "envelopemin", "minaccum"],
     "Year": ["year", "yr", "season", "years", "binyear", "endingdate", "enddate", "ending"],
     "Value": ["value", "data", "total", "precipitation", "precip", "pcpn", "snowfall", "snow", "avg", "average",
               "mean", "avgtemp", "avghigh", "avglow", "avghightemp", "avglowtemp"],
@@ -132,7 +143,7 @@ def normalize(df, key):
     for col, kind in SCHEMAS[key]:
         if kind == "text":
             df[col] = df[col].astype(object).where(df[col].notna(), "").astype(str).str.strip()
-            df[col] = df[col].str.replace(r' 00:00:00$', '', regex=True)  # Excel dates read as text
+            df[col] = df[col].str.replace(r'[ T]00:00:00$', '', regex=True)  # Excel / IEM dates read as text
             if col == "Year":  # xmACIS ranked lists give an ending date (2012-12-31); keep the year
                 df[col] = df[col].str.replace(r'^(\d{4})-\d{2}-\d{2}$', r'\1', regex=True).str.replace(r'\.0$', '', regex=True)
         elif kind == "date":
@@ -189,8 +200,33 @@ def guess_mapping(cols, key):
     return dict(zip(wanted, cols))
 
 
+# Number columns that are date parts or counts, so they make poor chart values
+DATE_PART_COLUMNS = {"month", "day", "year", "yr", "doy", "sday", "index", "row", "binyear", "dayofmonth", "years", "count"}
+
+
+def guess_autoplot_mapping(raw, key):
+    """Default column choices for an IEM autoplot table. For Basic charts: the first column as the label,
+    then the first number columns that aren't date parts (so #113 gives valid / avg_high / max_high)."""
+    if key != "Basic":
+        return guess_mapping([str(c) for c in raw.columns], key)
+    cols = [str(c) for c in raw.columns]
+    values = [c for c in cols[1:] if _norm(c) not in DATE_PART_COLUMNS
+              and pd.to_numeric(raw[c], errors="coerce").notna().mean() > 0.5]
+    return dict(zip(columns(key), [cols[0]] + values[:2]))
+
+
+def unique_names(names):
+    """Column names made unique ("High", "High (2)") so each one picks out exactly one column."""
+    seen, out = {}, []
+    for name in (str(n).strip() or f"Column {i + 1}" for i, n in enumerate(names)):
+        seen[name] = seen.get(name, 0) + 1
+        out.append(name if seen[name] == 1 else f"{name} ({seen[name]})")
+    return out
+
+
 def map_columns(raw, key):
     """Pick the `key` layout's columns out of `raw`. Returns (df with layout columns, ignored source column names)."""
+    raw = raw.set_axis(unique_names(raw.columns), axis=1)
     mapping = guess_mapping(raw.columns, key)
     out = pd.DataFrame({t: raw[src] for t, src in mapping.items()})
     return out, [str(c) for c in raw.columns if c not in mapping.values()]
@@ -211,11 +247,15 @@ def parse_pasted(text):
     """
     text = text.strip("\n")
     sep = '\t' if '\t' in text else (';' if ';' in text and ',' not in text else ',')
-    df = pd.read_csv(io.StringIO(text), sep=sep, header=None, dtype=str, skip_blank_lines=True,
-                     keep_default_na=False, engine="python")
+    rows = [r for r in csv.reader(io.StringIO(text), delimiter=sep) if any(c.strip() for c in r)]
+    # Rows can have different numbers of cells (e.g. extra cells past the header); pad them to the widest row
+    width = max((len(r) for r in rows), default=0)
+    df = pd.DataFrame([r + [""] * (width - len(r)) for r in rows], dtype=str)
+    if df.empty:
+        return df
     df = df.loc[:, ~(df == "").all()]  # Empty columns from trailing tabs
     if len(df) > 1 and df.shape[1] > 1 and not any(_data_like(c) for c in df.iloc[0]):
-        header = [str(c).strip() or f"Column {i + 1}" for i, c in enumerate(df.iloc[0])]
+        header = unique_names(df.iloc[0])
         df = df.iloc[1:].reset_index(drop=True)
         df.columns = header
     else:
@@ -236,8 +276,14 @@ def sample_data(key):
         doy = dates.dayofyear.to_numpy()
         normal_daily = 0.06 + 0.12 * np.exp(-((doy - 170) / 60) ** 2)
         rain = np.where(rng.random(len(dates)) < 0.28, rng.gamma(0.9, 0.38, len(dates)), 0.0)
+        years = [np.cumsum(np.where(rng.random(len(dates)) < 0.28, rng.gamma(0.9, 0.38 * f, len(dates)), 0.0))
+                 for f in rng.uniform(0.5, 1.6, 40)]
+        hist = np.array(years)
         return pd.DataFrame({"Date": dates, "Observed": np.round(np.cumsum(rain), 2),
-                             "Normal": np.round(np.cumsum(normal_daily), 2)})
+                             "Normal": np.round(np.cumsum(normal_daily), 2),
+                             "Highest Year": np.round(hist[hist[:, -1].argmax()], 2),
+                             "Lowest Year": np.round(hist[hist[:, -1].argmin()], 2),
+                             "Range Max": np.round(hist.max(axis=0), 2), "Range Min": np.round(hist.min(axis=0), 2)})
     if key == "Record & Normal Band":
         dates = pd.date_range("2025-07-01", "2025-07-31")
         t = np.arange(len(dates))

@@ -100,12 +100,38 @@ def season_label(year, start_month):
 
 # --- Running total vs normal ---
 
-def running_total(daily, var, year, start_month=1, start_day=1, end=None, normal_years=(1991, 2020),
-                  extend_normal=False):
-    """Observed and normal running totals of `var` ('precip' or 'snow') for one season.
+def season_history(amounts, start_month, start_day, n_days, max_missing=3):
+    """Running totals for the first `n_days` of the season in every year with a complete window.
 
-    Returns (DataFrame[Date, Observed, Normal], info dict). Missing days add nothing to the total.
-    The normal is the cumulative sum of the average daily amount for each calendar day over `normal_years`.
+    Returns a DataFrame indexed by day of season (0..n_days-1), one column per starting year.
+    Years missing more than `max_missing` days are left out, as IEM does.
+    """
+    first, last = amounts.index.min(), amounts.index.max()
+    cols = {}
+    for y in range(first.year - 1, last.year + 1):
+        try:
+            start = pd.Timestamp(y, start_month, start_day)
+        except ValueError:
+            continue
+        end = start + pd.Timedelta(days=n_days - 1)
+        if start < first or end > last:
+            continue
+        vals = amounts.reindex(pd.date_range(start, end))
+        if vals.isna().sum() > max_missing:
+            continue
+        cols[y] = vals.fillna(0).cumsum().to_numpy()
+    return pd.DataFrame(cols)
+
+
+def running_total(daily, var, year, start_month=1, start_day=1, end=None, normal_years=(1991, 2020),
+                  extend_normal=False, max_missing=3):
+    """Observed and normal running totals of `var` ('precip' or 'snow') for one season, plus the history
+    IEM's autoplot #172 shows: the range of every other year's running total, and the years with the
+    highest and lowest totals.
+
+    Returns (DataFrame[Date, Observed, Normal, Highest Year, Lowest Year, Range Max, Range Min], info).
+    Missing days add nothing to the total. The normal is the cumulative sum of the average daily amount for
+    each calendar day over `normal_years`.
     """
     data_end = daily.index.max().date()
     start, stop, season_end = season_window(year, start_month, start_day, end, data_end)
@@ -121,7 +147,18 @@ def running_total(daily, var, year, start_month=1, start_day=1, end=None, normal
     observed = obs_daily.fillna(0).cumsum().round(digits).reindex(dates).to_numpy()
     out = pd.DataFrame({"Date": dates, "Observed": observed, "Normal": normal})
     info = {"missing_days": int(obs_daily.isna().sum()), "start": start, "end": stop,
-            "season": season_label(year, start_month)}
+            "season": season_label(year, start_month), "highest": None, "lowest": None}
+    history = season_history(amounts, start_month, start_day, len(dates), max_missing).drop(columns=[year], errors="ignore")
+    if not history.empty:
+        finals = history.iloc[-1]
+        hi_year, lo_year = int(finals.idxmax()), int(finals.idxmin())
+        out["Highest Year"] = history[hi_year].round(digits).to_numpy()
+        out["Lowest Year"] = history[lo_year].round(digits).to_numpy()
+        out["Range Max"] = history.max(axis=1).round(digits).to_numpy()
+        out["Range Min"] = history.min(axis=1).round(digits).to_numpy()
+        info.update(highest=(season_label(hi_year, start_month), round(float(finals[hi_year]), digits)),
+                    lowest=(season_label(lo_year, start_month), round(float(finals[lo_year]), digits)),
+                    years=len(history.columns))
     return out, info
 
 

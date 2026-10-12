@@ -6,10 +6,10 @@ A Streamlit app for building chart graphics for on-air weather segments, exporte
 
 - Enter data in the table, paste cells straight from Excel/Google Sheets, or import a CSV/Excel file (first column = labels, next 1–2 columns = numbers)
 - Bar or line charts with one or two series, a highlighted point, and optional data labels
-- ★ Climate presets that can pull a station's full daily history from the Iowa Environmental Mesonet:
-  - **Running Total vs Normal**: season-to-date rain or snow against the normal, with the surplus/deficit shaded
-  - **Record & Normal Band**: daily highs and lows over the normal and record ranges, with new records marked
-  - **Year Ranking**: every year on record sorted, with one year highlighted and ranked (e.g. "5th wettest of 133 years")
+- ★ Climate presets (pick them in the Chart Type row at the top) that can pull a station's full daily history from the Iowa Environmental Mesonet and are styled after IEM's own autoplots:
+  - **Running Total vs Normal** (like #172): season-to-date rain or snow against normal, with the range of all years and the highest/lowest years
+  - **Record & Normal Band** (like #113): daily highs and lows over warm/cool record bands and the normal range, for a month or a full year, with new records marked
+  - **Year Ranking** (like #107 / #189): every year on record, by year or sorted, with one year highlighted and ranked (e.g. "5th wettest of 133 years"), an average line and an optional trend line
 - Import the data behind any IEM autoplot by pasting the autoplot's page link
 - Number formatting: decimal places, prefix/suffix units (e.g. `°`, `%`, `"`), thousands separators
 - Control over size, fonts, colors (with brand color presets), gridlines, axis interval and label rotation
