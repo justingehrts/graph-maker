@@ -14,7 +14,7 @@ import numpy as np
 import pandas as pd
 from matplotlib.ticker import FixedLocator, MaxNLocator
 
-from data_io import DATE_REF_YEAR, format_number
+from data_io import DATE_REF_YEAR, format_number, round_day
 from iem import ordinal, rank_of, record_counts
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -96,38 +96,45 @@ def _label_kw(s, txt_col):
     return dict(color=txt_col, fontproperties=_font(s['value_bold']), fontsize=s['value_sz'])
 
 
-def _style_y(ax, s, txt_col, y_lo, y_hi):
-    """Y range, interval (widened if it would draw too many ticks), number format and fonts. Returns the interval used."""
-    ax.set_ylim(y_lo, y_hi)
+def _style_y(ax, s, txt_col, y_lo, y_hi, axis="y"):
+    """Range, interval (widened if it would draw too many ticks) and number format of the value axis, which is Y,
+    or X for horizontal charts. Returns the interval used."""
+    (ax.set_ylim if axis == "y" else ax.set_xlim)(y_lo, y_hi)
+    value_axis = ax.yaxis if axis == "y" else ax.xaxis
     if s['y_auto'] and _is_dates(s):
         y_step = next((d for d in DAY_STEPS if d >= (y_hi - y_lo) / 10), DAY_STEPS[-1])
     else:
         y_step = nice_step(y_lo, y_hi) if s['y_auto'] else max(s['y_step'], (y_hi - y_lo) / MAX_Y_TICKS)
     ticks = _date_ticks(y_lo, y_hi, y_step) if s['y_auto'] and _is_dates(s) else []
-    ax.yaxis.set_major_locator(FixedLocator(ticks) if len(ticks) >= 2 else plt.MultipleLocator(y_step))
+    value_axis.set_major_locator(FixedLocator(ticks) if len(ticks) >= 2 else plt.MultipleLocator(y_step))
     # Whole-number intervals get whole-number labels (10, not 10.00) whatever the data-label decimals are
     axis_s = dict(s, num_decimals="0") if float(y_step).is_integer() and s['num_decimals'] != "Auto" else s
-    ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: format_number(v, axis_s, units=s['axis_units'])))
-    ax.tick_params(axis='y', colors=txt_col, width=3, length=8, zorder=4)
+    value_axis.set_major_formatter(plt.FuncFormatter(lambda v, _: format_number(v, axis_s, units=s['axis_units'])))
+    ax.tick_params(axis=axis, colors=txt_col, width=3, length=8, zorder=4)
     return y_step
 
 
-def _finish(fig, ax, s, txt_col, y_lo, y_hi, zero_line=True):
-    """Fonts, spines, zero line and gridlines shared by every chart; returns PNG bytes."""
-    ax.tick_params(axis='x', colors=txt_col, width=3, length=8, zorder=4)
-    for tick in ax.get_yticklabels():
+def _finish(fig, ax, s, txt_col, y_lo, y_hi, zero_line=True, horizontal=False):
+    """Fonts, spines, zero line and gridlines shared by every chart; returns PNG bytes.
+
+    The "X axis label" settings style the category labels and the "Y axis value" settings the numbers, so on a
+    horizontal chart (values along the bottom) they swap axes. Rotation applies to vertical charts only.
+    """
+    ax.tick_params(axis='y' if horizontal else 'x', colors=txt_col, width=3, length=8, zorder=4)
+    values, categories = (ax.get_xticklabels(), ax.get_yticklabels()) if horizontal else (ax.get_yticklabels(), ax.get_xticklabels())
+    for tick in values:
         tick.set_fontproperties(_font(s['y_bold'])); tick.set_fontsize(s['y_sz']); tick.set_color(txt_col)
-    for tick in ax.get_xticklabels():
+    for tick in categories:
         tick.set_fontproperties(_font(s['x_bold'])); tick.set_fontsize(s['x_sz']); tick.set_color(txt_col)
-        tick.set_rotation(s['x_rot'])
+        if not horizontal: tick.set_rotation(s['x_rot'])
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
     for side in ['left', 'bottom']:
         ax.spines[side].set_linewidth(4); ax.spines[side].set_color(txt_col); ax.spines[side].set_zorder(4)
-    if zero_line and y_lo < 0 < y_hi:
-        ax.axhline(0, color=txt_col, linewidth=2, zorder=4)  # Baseline when the data crosses zero
+    if zero_line and y_lo < 0 < y_hi:  # Baseline when the data crosses zero
+        (ax.axvline if horizontal else ax.axhline)(0, color=txt_col, linewidth=2, zorder=4)
     if s['grid_show']:
-        ax.grid(True, axis='y', color=s['grid_color'], alpha=s['grid_alpha'], linewidth=s['grid_width'],
+        ax.grid(True, axis='x' if horizontal else 'y', color=s['grid_color'], alpha=s['grid_alpha'], linewidth=s['grid_width'],
                 linestyle=GRID_STYLES[s['grid_style']], zorder=1)
     ax.set_axisbelow(True)
     fig.tight_layout()
@@ -156,9 +163,31 @@ def _date_axis(ax, dates, s):
         ax.set_xlim(dates.min() - pad, dates.max() + pad)
 
 
-def _callout(ax, text, xy, s, txt_col, ha="center", offset=(0, 30)):
-    ax.annotate(text, xy=xy, xytext=offset, textcoords="offset points", ha=ha, va="bottom", zorder=6,
+def _callout(ax, text, xy, s, txt_col, ha="center", offset=(0, 30), va="bottom"):
+    ax.annotate(text, xy=xy, xytext=offset, textcoords="offset points", ha=ha, va=va, zorder=6,
                 **_label_kw(s, txt_col))
+
+
+def _categories(ax, labels, shown, horizontal):
+    """Category labels at positions 0..n-1; horizontal charts list them top to bottom in table order."""
+    n = len(labels)
+    if horizontal:
+        ax.set_yticks(shown)
+        ax.set_yticklabels([labels[i] for i in shown])
+        if n: ax.set_ylim(n - 0.4, -0.6)
+    else:
+        ax.set_xticks(shown)
+        ax.set_xticklabels([labels[i] for i in shown])
+        if n: ax.set_xlim(-0.6, n - 0.4)
+
+
+def _end_label(ax, pos, v, text, s, txt_col, horizontal, pad):
+    """A value label just past the end of a bar (above/below it, or right/left of it when horizontal)."""
+    kw = dict(zorder=5, **_label_kw(s, txt_col))
+    if horizontal:
+        ax.text(v + pad if v >= 0 else v - pad, pos, text, ha='left' if v >= 0 else 'right', va='center', **kw)
+    else:
+        ax.text(pos, v + pad if v >= 0 else v - pad, text, ha='center', va='bottom' if v >= 0 else 'top', **kw)
 
 
 # --- Basic bar / line ---
@@ -223,13 +252,16 @@ def render_basic(df, s, txt_col):
         c1[hl] = s['highlight_color']
 
     y_lo, y_hi = y_limits(v1 + v2, _start_zero(s))
+    horizontal = s['chart_type'] == "Bar" and s['bar_orient'] == "Horizontal"
     if s['chart_type'] == "Bar":
         width_val = max(0.1, 0.8 - s['bar_gap'])  # Hard floor applied
+        draw = ax.barh if horizontal else ax.bar
+        size = "height" if horizontal else "width"
         if v2:
-            bars = [ax.bar([i - width_val/4 for i in x], v1, width=width_val/2, color=c1, zorder=2),
-                    ax.bar([i + width_val/4 for i in x], v2, width=width_val/2, color=s['last_c2'], zorder=2)]
+            bars = [draw([i - width_val/4 for i in x], v1, **{size: width_val/2}, color=c1, zorder=2),
+                    draw([i + width_val/4 for i in x], v2, **{size: width_val/2}, color=s['last_c2'], zorder=2)]
         else:
-            bars = [ax.bar(x, v1, width=width_val, color=c1, zorder=2)]
+            bars = [draw(x, v1, **{size: width_val}, color=c1, zorder=2)]
         if s['show_values']:
             for r in bars: ax.bar_label(r, labels=[format_number(v, s) for v in r.datavalues], padding=5, **label_kw)
     else:
@@ -245,12 +277,9 @@ def render_basic(df, s, txt_col):
                     ax.text(i, v + offset if v >= 0 else v - offset, format_number(v, s), ha='center',
                             va='bottom' if v >= 0 else 'top', zorder=5, **label_kw)
 
-    ticks = label_positions(labels, s, keep=[hl])
-    ax.set_xticks(ticks)
-    ax.set_xticklabels([labels[i] for i in ticks])
-    if labels: ax.set_xlim(-0.6, len(labels) - 0.4)
-    y_step = _style_y(ax, s, txt_col, y_lo, y_hi)
-    return _finish(fig, ax, s, txt_col, y_lo, y_hi), y_step
+    _categories(ax, labels, label_positions(labels, s, keep=[hl]), horizontal)
+    y_step = _style_y(ax, s, txt_col, y_lo, y_hi, axis="x" if horizontal else "y")
+    return _finish(fig, ax, s, txt_col, y_lo, y_hi, horizontal=horizontal), y_step
 
 
 # --- Running total vs normal (IEM autoplot #172 style) ---
@@ -398,35 +427,43 @@ def render_year_ranking(df, s, txt_col):
     full["Year"] = full["Year"].astype(str)
     hl = ranking_highlight(full, s)
     years = _year_numbers(full["Year"])
+    horizontal = s['yr_orient'] == "Horizontal" and s['yr_style'] != "Line"
     by_year = s['yr_order'] == "By year" and years is not None
     if by_year:
         d = full.assign(_x=years).sort_values("_x").reset_index(drop=True)
-        x = d["_x"].tolist()
     else:
         d = full.sort_values(["Value", "Year"], ascending=[s['yr_rank_dir'] == "Lowest", True]).reset_index(drop=True)
         if s['yr_top_n'] and len(d) > s['yr_top_n']:
             top = d.iloc[:s['yr_top_n']]
             d = top if hl in top["Year"].tolist() else pd.concat([top, d[d["Year"] == hl]], ignore_index=True)
-        x = list(range(len(d)))
+    # Vertical by-year charts put the years on a numeric axis; everything else uses one slot per row
+    numeric_years = by_year and not horizontal
+    x = d["_x"].tolist() if numeric_years else list(range(len(d)))
     vals = d["Value"].tolist()
     is_hl = (d["Year"] == hl).tolist()
     colors = [s['yr_hl_color'] if h else s['yr_color'] for h in is_hl]
     if s['yr_style'] == "Dots":
-        ax.scatter(x, vals, color=colors, s=s['marker_size'] ** 2, zorder=3)
+        ax.scatter(*((vals, x) if horizontal else (x, vals)), color=colors, s=s['marker_size'] ** 2, zorder=3)
     elif s['yr_style'] == "Line":
         ax.plot(x, vals, color=s['yr_color'], linewidth=max(1, s['line_width'] * 0.5), zorder=2.5)
         ax.scatter(x, vals, color=colors, s=s['marker_size'] ** 2, zorder=3)
     else:
-        ax.bar(x, vals, width=0.8 if by_year or len(d) > 40 else 0.7, color=colors, zorder=2)
+        thick = 0.8 if by_year or len(d) > 40 else 0.7
+        (ax.barh(x, vals, height=thick, color=colors, zorder=2) if horizontal
+         else ax.bar(x, vals, width=thick, color=colors, zorder=2))
     y_lo, y_hi = y_limits(vals, _start_zero(s))
     label_kw = _label_kw(s, txt_col)
     if s['yr_avg_line'] and len(full):
         avg = full["Value"].mean()
-        ax.axhline(avg, color=s['yr_avg_color'], linewidth=max(1, s['line_width'] * 0.4), zorder=4)
+        (ax.axvline if horizontal else ax.axhline)(avg, color=s['yr_avg_color'], linewidth=max(1, s['line_width'] * 0.4), zorder=4)
         if s['yr_avg_label']:
-            ax.annotate(f"Avg: {format_number(avg, s)}", xy=(1, avg), xycoords=("axes fraction", "data"),
-                        xytext=(-6, 6), textcoords="offset points", ha="right", va="bottom", zorder=6, **label_kw)
-    if s['yr_trend'] and by_year and len(d) > 2:
+            if horizontal:
+                ax.annotate(f"Avg: {format_number(avg, s)}", xy=(avg, 0), xycoords=("data", "axes fraction"),
+                            xytext=(6, 6), textcoords="offset points", ha="left", va="bottom", zorder=6, **label_kw)
+            else:
+                ax.annotate(f"Avg: {format_number(avg, s)}", xy=(1, avg), xycoords=("axes fraction", "data"),
+                            xytext=(-6, 6), textcoords="offset points", ha="right", va="bottom", zorder=6, **label_kw)
+    if s['yr_trend'] and numeric_years and len(d) > 2:
         slope, intercept = np.polyfit(d["_x"], d["Value"], 1)
         xs = np.array([d["_x"].min(), d["_x"].max()])
         ax.plot(xs, intercept + slope * xs, color=s['yr_trend_color'], linewidth=max(1, s['line_width'] * 0.4),
@@ -438,35 +475,124 @@ def render_year_ranking(df, s, txt_col):
                     xytext=(-6, -10), textcoords="offset points", ha="right", va="top", zorder=6, **label_kw)
     label_all = len(d) <= MAX_YEAR_LABELS
     if s['show_values']:
-        offset = (y_hi - y_lo) * 0.02
+        pad = (y_hi - y_lo) * 0.02
         for xi, v, h in zip(x, vals, is_hl):
             if label_all or h:
-                ax.text(xi, v + offset if v >= 0 else v - offset, format_number(v, s), ha='center',
-                        va='bottom' if v >= 0 else 'top', zorder=5, **label_kw)
+                _end_label(ax, xi, v, format_number(v, s), s, txt_col, horizontal, pad)
     if s['yr_callout'] and hl in d["Year"].tolist():
         i = is_hl.index(True)
         text = rank_text(full, s, hl)
         if text:
-            # Sit above the bar's own value label when those are on
-            _callout(ax, text, (x[i], vals[i]), s, txt_col, offset=(0, 30 + (s['value_sz'] * 1.8 if s['show_values'] else 0)))
+            if horizontal:  # Past the end of the bar (and its value label)
+                _callout(ax, text, (vals[i], x[i]), s, txt_col, ha="left", va="center",
+                         offset=(12 + (s['value_sz'] * 3.5 if s['show_values'] else 0), 0))
+            else:  # Above the bar's own value label when those are on
+                _callout(ax, text, (x[i], vals[i]), s, txt_col,
+                         offset=(0, 30 + (s['value_sz'] * 1.8 if s['show_values'] else 0)))
     mode = s.get('x_label_every', "Auto")
-    if by_year:
+    if numeric_years:
         # Years are the axis values here, so "every 5th" and "ending in 0 or 5" are the same thing
         ax.xaxis.set_major_locator(MaxNLocator(nbins=10, integer=True) if mode == "Auto"
                                    else plt.MultipleLocator(X_LABEL_STEPS[mode]))
         if len(x): ax.set_xlim(min(x) - 1, max(x) + 1)
     else:
-        shown = ([i for i in x if label_all or is_hl[i]] if mode == "Auto"
-                 else label_positions(d["Year"].tolist(), s, keep=[is_hl.index(True)] if any(is_hl) else []))
-        ax.set_xticks(shown)
-        ax.set_xticklabels([d["Year"].iloc[i] for i in shown])
-        if len(d): ax.set_xlim(-0.7, len(d) - 0.3)
-    y_step = _style_y(ax, s, txt_col, y_lo, y_hi)
-    return _finish(fig, ax, s, txt_col, y_lo, y_hi), y_step
+        keep = [is_hl.index(True)] if any(is_hl) else []
+        shown = ([i for i in x if label_all or is_hl[i]] if mode == "Auto" and not by_year
+                 else label_positions(d["Year"].tolist(), s, keep=keep))
+        _categories(ax, d["Year"].tolist(), shown, horizontal)
+    y_step = _style_y(ax, s, txt_col, y_lo, y_hi, axis="x" if horizontal else "y")
+    return _finish(fig, ax, s, txt_col, y_lo, y_hi, horizontal=horizontal), y_step
+
+
+# --- Range bars (floating bars, e.g. growing season per year; IEM autoplot #10 style) ---
+
+def range_series(df, s):
+    """Rows to draw (last N if set) with Start and End; dates whose End is before Start continue into next year."""
+    d = df.dropna(subset=["Start"]).reset_index(drop=True)
+    d = d.assign(Label=d["Label"].astype(str), Start=d["Start"].astype(float), End=d["End"].astype(float))
+    if _is_dates(s):
+        d.loc[d["End"] < d["Start"], "End"] += 365  # A Nov-Apr season ends in the following year
+    if s['rg_last_n'] and len(d) > s['rg_last_n']:
+        d = d.iloc[-s['rg_last_n']:].reset_index(drop=True)
+    return d
+
+
+def range_length_text(start, end, s):
+    """Length of a range: whole days between the dates as shown, or the difference for numbers."""
+    if pd.isna(start) or pd.isna(end): return ""
+    return f"{round_day(end) - round_day(start)} days" if _is_dates(s) else format_number(end - start, s)
+
+
+def range_highlight(d, s):
+    return s['rg_highlight'] if s['rg_highlight'] in d["Label"].tolist() else None
+
+
+def render_range_bars(df, s, txt_col):
+    fig, ax = _new_figure(s)
+    d = range_series(df, s)
+    horizontal = s['rg_orient'] == "Horizontal"
+    hl = range_highlight(d, s)
+    pos = list(range(len(d)))
+    start, end = d["Start"].tolist(), d["End"].tolist()
+    colors = [s['rg_hl_color'] if l == hl else s['rg_color'] for l in d["Label"]]
+    full = d["End"].notna()
+    if full.any():
+        if horizontal:
+            ax.barh(d.index[full], d.loc[full, "End"] - d.loc[full, "Start"], left=d.loc[full, "Start"], height=0.7,
+                    color=[c for c, f in zip(colors, full) if f], zorder=2)
+        else:
+            ax.bar(d.index[full], d.loc[full, "End"] - d.loc[full, "Start"], bottom=d.loc[full, "Start"], width=0.7,
+                   color=[c for c, f in zip(colors, full) if f], zorder=2)
+    open_rows = ~full  # No end yet (e.g. this year's fall freeze hasn't happened): mark the start only
+    if open_rows.any():
+        pts = (d.loc[open_rows, "Start"], d.index[open_rows])
+        ax.scatter(*(pts if horizontal else pts[::-1]), marker="|" if horizontal else "_", s=(s['marker_size'] * 2) ** 2,
+                   linewidths=4, color=[c for c, o in zip(colors, open_rows) if o], zorder=3)
+    values = start + [e for e in end if pd.notna(e)]
+    lo, hi = (min(values), max(values)) if values else (0.0, 10.0)
+    span = (hi - lo) or 10.0
+    # Snug like IEM's plots, with room past the ends for labels / call-out when they're on
+    room = 0.18 if (s['rg_labels'] != "None" or s['rg_callout']) else 0.04
+    y_lo = lo - span * (room if s['rg_labels'] == "Ends" else 0.04)
+    y_hi = hi + span * room
+    if _start_zero(s): y_lo = min(y_lo, 0.0)
+    pad = (y_hi - y_lo) * 0.01
+    if s['rg_avg_lines'] and len(d):
+        for avg in (np.nanmean(start), np.nanmean([e for e in end if pd.notna(e)] or [np.nan])):
+            if pd.notna(avg):
+                (ax.axvline if horizontal else ax.axhline)(avg, color=s['rg_avg_color'], linestyle="--",
+                                                           linewidth=max(1, s['line_width'] * 0.3), zorder=4)
+    kw = dict(zorder=5, **_label_kw(s, txt_col))
+    for i in pos:
+        if s['rg_labels'] == "Ends":
+            texts = [(start[i], format_number(start[i], s), -1)] + ([(end[i], format_number(end[i], s), 1)] if pd.notna(end[i]) else [])
+        elif s['rg_labels'] == "Length" and pd.notna(end[i]):
+            texts = [(end[i], range_length_text(start[i], end[i], s), 1)]
+        else:
+            texts = []
+        for v, text, side in texts:
+            if horizontal:
+                ax.text(v + side * pad, i, text, ha='left' if side > 0 else 'right', va='center', **kw)
+            else:
+                ax.text(i, v + side * pad, text, ha='center', va='bottom' if side > 0 else 'top', **kw)
+    if s['rg_callout'] and hl is not None:
+        i = d["Label"].tolist().index(hl)
+        if pd.notna(end[i]):
+            text = range_length_text(start[i], end[i], s)
+            extra = s['value_sz'] * 3.5 if s['rg_labels'] != "None" else 0
+            if horizontal:
+                _callout(ax, text, (end[i], i), s, txt_col, ha="left", va="center", offset=(12 + extra, 0))
+            else:
+                _callout(ax, text, (i, end[i]), s, txt_col, offset=(0, 20 + (s['value_sz'] * 1.6 if extra else 0)))
+    _categories(ax, d["Label"].tolist(), label_positions(d["Label"].tolist(), s, keep=[d["Label"].tolist().index(hl)] if hl else []),
+                horizontal)
+    y_step = _style_y(ax, s, txt_col, y_lo, y_hi, axis="x" if horizontal else "y")
+    return _finish(fig, ax, s, txt_col, y_lo, y_hi, horizontal=horizontal, zero_line=not _is_dates(s)), y_step
 
 
 RENDERERS = {"Bar": render_basic, "Line": render_basic, "Running Total vs Normal": render_running_total,
-             "Record & Normal Band": render_record_band, "Year Ranking": render_year_ranking}
+             "Record & Normal Band": render_record_band, "Year Ranking": render_year_ranking,
+             "Range Bars": render_range_bars}
 
 
 def render(df, s, txt_col):
@@ -499,4 +625,18 @@ def summary(df, s):
         if not text: return None
         value = d.loc[d["Year"].astype(str) == hl, "Value"].iloc[0]
         return f"{hl}: {text} ({format_number(value, s)}) · average {format_number(d['Value'].mean(), s)}"
+    if ct == "Range Bars":
+        d = range_series(df, s)
+        if d.empty: return None
+        both = d.dropna(subset=["End"])
+        a_start, a_end = both["Start"].mean(), both["End"].mean()
+        avg = (f"average {format_number(a_start, s)} – {format_number(a_end, s)} "
+               f"({range_length_text(a_start, a_end, s)})") if len(both) else ""
+        hl = range_highlight(d, s)
+        if hl is None: return avg[:1].upper() + avg[1:] or None
+        row = d[d["Label"] == hl].iloc[0]
+        span = (f"{format_number(row['Start'], s)} – {format_number(row['End'], s)} "
+                f"({range_length_text(row['Start'], row['End'], s)})" if pd.notna(row["End"])
+                else f"{format_number(row['Start'], s)} – (no end yet)")
+        return f"{hl}: {span}" + (f" · {avg}" if avg else "")
     return None

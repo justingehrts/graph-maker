@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 
 BASIC_TYPES = ["Bar", "Line"]
-PRESET_TYPES = ["Running Total vs Normal", "Record & Normal Band", "Year Ranking"]
+PRESET_TYPES = ["Running Total vs Normal", "Record & Normal Band", "Year Ranking", "Range Bars"]
 CHART_TYPES = BASIC_TYPES + PRESET_TYPES
 DATED_TYPES = ["Running Total vs Normal", "Record & Normal Band"]
 
@@ -21,10 +21,12 @@ SCHEMAS = {
     "Record & Normal Band": [("Date", "date"), ("Actual High", "num"), ("Actual Low", "num"), ("Normal High", "num"),
                              ("Normal Low", "num"), ("Record High", "num"), ("Record Low", "num")],
     "Year Ranking": [("Year", "text"), ("Value", "num")],
+    # Floating bars from Start to End, e.g. last spring to first fall freeze per year (dates or plain numbers)
+    "Range Bars": [("Label", "text"), ("Start", "num"), ("End", "num")],
 }
 
 # How many leading columns of each layout a chart can't do without
-REQUIRED = {"Running Total vs Normal": 3, "Record & Normal Band": 3, "Year Ranking": 2}
+REQUIRED = {"Running Total vs Normal": 3, "Record & Normal Band": 3, "Year Ranking": 2, "Range Bars": 3}
 
 DESCRIPTIONS = {
     "Bar": "Open-ended bar chart: any labels with one or two series of values.",
@@ -34,6 +36,8 @@ DESCRIPTIONS = {
     "Record & Normal Band": "Daily highs and lows over the normal and record ranges, with new records marked "
                             "(like IEM autoplot #113).",
     "Year Ranking": "Every year on record with one year highlighted and ranked (like IEM autoplots #107 / #189).",
+    "Range Bars": "Floating bars from a start to an end, e.g. the growing season (last spring to first fall "
+                  "freeze) each year (like IEM autoplot #10).",
 }
 
 
@@ -57,6 +61,9 @@ ALIASES = {
     "Lowest Year": ["lowestyear", "driestyear", "minyear"],
     "Range Max": ["rangemax", "envelopemax", "maxaccum"],
     "Range Min": ["rangemin", "envelopemin", "minaccum"],
+    "Label": ["label", "year", "yr", "season", "name", "station", "city", "location", "site"],
+    "Start": ["start", "begin", "beginning", "from", "startdate", "springdate", "lastspring", "lastspringdate"],
+    "End": ["end", "to", "finish", "enddate", "falldate", "firstfall", "firstfalldate"],
     "Year": ["year", "yr", "season", "years", "binyear", "endingdate", "enddate", "ending"],
     "Value": ["value", "data", "total", "precipitation", "precip", "pcpn", "snowfall", "snow", "avg", "average",
               "mean", "avgtemp", "avghigh", "avglow", "avghightemp", "avglowtemp"],
@@ -84,9 +91,14 @@ _MONTHS = {m: i for i, m in enumerate(["jan", "feb", "mar", "apr", "may", "jun",
                                        "dec"], start=1)}
 
 
+def round_day(v):
+    """Nearest whole day, rounding halves up (Python's round() sends 324.5 to 324 but 325.5 to 326)."""
+    return int(np.floor(v + 0.5))
+
+
 def day_of_year_text(v):
     """Day-of-year value -> "Oct 18"."""
-    d = date(DATE_REF_YEAR, 1, 1) + timedelta(days=int(round(v)) - 1)
+    d = date(DATE_REF_YEAR, 1, 1) + timedelta(days=round_day(v) - 1)
     return f"{d:%b} {d.day}"
 
 
@@ -383,6 +395,13 @@ def sample_data(key):
         ah[[8, 9]] = rh[[8, 9]] + [1, 0]  # A couple of record days
         return pd.DataFrame({"Date": dates, "Actual High": ah, "Actual Low": al, "Normal High": np.round(nh, 1),
                              "Normal Low": np.round(nl, 1), "Record High": rh, "Record Low": rl})
+    if key == "Range Bars":  # A growing season per year, as day-of-year dates
+        years = np.arange(1996, 2026)
+        start = np.round(rng.normal(110, 8, len(years)))
+        end = np.round(rng.normal(291, 9, len(years)))
+        df = pd.DataFrame({"Label": years.astype(str), "Start": start, "End": end})
+        df.attrs["value_kind"] = "Date"
+        return df
     years = np.arange(1990, 2026)
     return pd.DataFrame({"Year": years.astype(str), "Value": np.round(rng.normal(36, 6, len(years)), 2)})
 

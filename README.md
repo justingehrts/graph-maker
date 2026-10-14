@@ -10,6 +10,8 @@ A Streamlit app for building chart graphics for on-air weather segments, exporte
   - **Running Total vs Normal** (like #172): season-to-date rain or snow against normal, with the range of all years and the highest/lowest years
   - **Record & Normal Band** (like #113): daily highs and lows over warm/cool record bands and the normal range, for a month or a full year, with new records marked
   - **Year Ranking** (like #107 / #189): every year on record, by year or sorted, with one year highlighted and ranked (e.g. "5th wettest of 133 years"), an average line and an optional trend line
+  - **Range Bars** (like #10): floating bars from a start to an end. From station data the app builds the growing season for every year: the last spring and first fall low at or below a threshold (32° and below by default, the NWS definition of a freeze)
+- Horizontal bars for Bar charts and Year Ranking, suited to sorted top-N lists and named rows (cities, event types)
 - Import the data behind any IEM autoplot by pasting the autoplot's page link
 - Number formatting: decimal places, prefix/suffix units (e.g. `°`, `%`, `"`), thousands separators
 - Control over size, fonts, colors (with brand color presets), gridlines, axis interval and label rotation
