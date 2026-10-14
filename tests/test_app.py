@@ -309,3 +309,32 @@ def test_x_axis_label_choices():
     widget(at, "radio", "Chart Type").set_value("Year Ranking").run()
     widget(at, "selectbox", "X Axis Labels").set_value("Years ending in 0").run()
     assert problems(at) == []
+
+
+def test_range_bars_from_columbus_station_data(monkeypatch):
+    columbus = pd.DataFrame({"id": ["OHTCMH"], "name": ["Columbus Area"], "county": ["Franklin"], "begin": [1878],
+                             "ncei91": ["USW00014821"], "label": ["Columbus Area (OHTCMH) · Franklin Co. · since 1878"]})
+    monkeypatch.setattr(iem, "fetch_stations", lambda state: columbus)
+    at = new(chart_type="Range Bars")  # Columbus Area is the default station
+    widget(at, "button", "📥 Use this station data").click().run()
+    assert problems(at) == []
+    df = at.session_state.datasets["Range Bars"]
+    assert len(df) > 100 and at.session_state.value_kind == "Date"
+    assert at.session_state.rg_highlight == df["Label"].iloc[-1] == "2025"  # Stand-in data runs through Oct 10, 2025
+    assert "growing season: last spring / first fall low ≤ 32°" in at.session_state.source_notes["Range Bars"]
+    assert any(m.value.startswith("**2025: ") and "average" in m.value for m in at.markdown)
+    assert at.dataframe[0].value["Start"].iloc[0].split()[0] in ("Mar", "Apr", "May")  # Shown as dates
+    for label_mode in ("Ends", "Length"):
+        widget(at, "radio", "Labels on bars").set_value(label_mode).run()
+    widget(at, "radio", "Bar direction").set_value("Vertical").run()
+    assert problems(at) == []
+
+
+def test_bar_direction_options():
+    at = new()
+    widget(at, "radio", "Bar direction").set_value("Horizontal").run()
+    assert problems(at) == []
+    widget(at, "radio", "Chart Type").set_value("Year Ranking").run()
+    widget(at, "radio", "Order").set_value("Sorted").run()
+    widget(at, "radio", "Bar direction").set_value("Horizontal").run()
+    assert problems(at) == [] and any("trend line is available with vertical" in c.value for c in at.caption) is False

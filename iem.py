@@ -7,6 +7,7 @@ import re
 from datetime import date, timedelta
 from urllib.parse import urlparse, parse_qsl
 
+import numpy as np
 import pandas as pd
 import requests
 
@@ -256,6 +257,49 @@ def record_counts(df):
     highs = (df["Actual High"] >= df["Record High"]) & df["Actual High"].notna() & df["Record High"].notna()
     lows = (df["Actual Low"] <= df["Record Low"]) & df["Actual Low"].notna() & df["Record Low"].notna()
     return highs, lows
+
+
+# --- Freeze seasons (floating bars) ---
+
+def freeze_seasons(daily, threshold=32.0, strictly_below=False, max_missing=15):
+    """Last spring and first fall day each year with a low at or below `threshold` (32° and below is a freeze, as
+    the NWS defines it). Spring is Jan 1 - Jun 30, fall Jul 1 - Dec 31. `strictly_below` reproduces IEM's autoplot
+    #10, which counts lows below the threshold; the app always uses at-or-below, the tests use it to check against IEM.
+
+    Returns (DataFrame[Label, Start, End] with Start/End as day of year, info). End is blank when the fall freeze
+    hasn't happened yet; years missing more than `max_missing` lows in either half are left out.
+    """
+    from data_io import DATE_REF_YEAR
+    low = daily["low"]
+    data_end = daily.index.max()
+    hit = (low < threshold) if strictly_below else (low <= threshold)
+
+    def day_number(ts):
+        return float(date(DATE_REF_YEAR, ts.month, ts.day).timetuple().tm_yday) if ts.month != 2 or ts.day != 29 else 60.0
+
+    rows, skipped = [], []
+    for y in range(daily.index.year.min(), daily.index.year.max() + 1):
+        found, usable = [], True
+        for start, end in ((pd.Timestamp(y, 1, 1), pd.Timestamp(y, 6, 30)), (pd.Timestamp(y, 7, 1), pd.Timestamp(y, 12, 31))):
+            end = min(end, data_end)
+            if end < start:  # This half hasn't started yet (e.g. the fall of the current year in spring)
+                found.append(pd.DatetimeIndex([]))
+                continue
+            window = pd.date_range(start, end)
+            if low.reindex(window).isna().sum() > max_missing or start < daily.index.min():
+                usable = False
+                break
+            days = hit.reindex(window).fillna(False)
+            found.append(days[days].index)
+        if not usable:
+            skipped.append(str(y))
+            continue
+        spring, fall = found
+        rows.append((str(y), day_number(spring.max()) if len(spring) else np.nan,
+                     day_number(fall.min()) if len(fall) else np.nan))
+    out = pd.DataFrame(rows, columns=["Label", "Start", "End"])
+    out.attrs["value_kind"] = "Date"
+    return out, {"skipped_years": skipped}
 
 
 # --- Year ranking ---

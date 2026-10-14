@@ -160,3 +160,10 @@ def test_dates_shown_as_text_read_back_unchanged():
     days, _ = dio.clean_numbers(pd.Series(["20-Nov", "5-Jan", "30-Dec"]), keep_missing=True)
     again, counts = dio.clean_numbers(days.map(dio.day_of_year_text), keep_missing=True)
     assert again.tolist() == days.tolist() and counts["dates"] == 3
+
+
+def test_range_bars_columns():
+    assert dio.guess_mapping(["year", "spring", "fall", "spring_date", "fall_date", "season"], "Range Bars") == \
+        {"Label": "year", "Start": "spring_date", "End": "fall_date"}  # IEM #10
+    df, notes, _ = load("Season\tFirst\tLast\n2023-24\t12-Nov\t3-Apr\n2024-25\t28-Nov\t15-Mar\n", "Range Bars")
+    assert df["Label"].tolist() == ["2023-24", "2024-25"] and "values read as dates" in notes

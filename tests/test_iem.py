@@ -195,3 +195,37 @@ def test_record_band_uses_ncei_normals(daily):
 def test_no_ncei_station_raises():
     with pytest.raises(iem.NormalsUnavailable, match="No official NCEI"):
         iem.fetch_ncei_normals("XX0000", "IA", "")
+
+
+def test_freeze_seasons_match_autoplot_10(daily):
+    # IEM #10 (last spring / first fall low below 32°) for Ames, saved 2026-10-14
+    ref = pd.read_csv(FIX / "autoplot10_IATAME_low32.csv")
+    out, _ = iem.freeze_seasons(daily, 32, strictly_below=True)
+    m = out.merge(ref.assign(Label=ref["year"].astype(str)), on="Label")
+    import data_io as dio
+    fmt = lambda col: pd.to_datetime(m[col]).map(lambda t: f"{t:%b} {t.day}")
+    assert len(m) == len(ref) == 133
+    assert (m["Start"].map(dio.day_of_year_text) == fmt("spring_date")).all()
+    assert (m["End"].map(dio.day_of_year_text) == fmt("fall_date")).all()
+    assert out.attrs["value_kind"] == "Date"
+    # The current year has its spring freeze but no fall freeze yet
+    assert out["Label"].iloc[-1] == "2026" and pd.notna(out["Start"].iloc[-1]) and pd.isna(out["End"].iloc[-1])
+
+
+def test_freeze_seasons_nws_counts_32_as_freezing(daily):
+    nws, _ = iem.freeze_seasons(daily, 32)  # At or below 32°
+    iem_style, _ = iem.freeze_seasons(daily, 32, strictly_below=True)
+    both = nws.merge(iem_style, on="Label", suffixes=("_nws", "_iem")).dropna()
+    # Counting 32° itself can only make the spring freeze later and the fall freeze earlier
+    assert (both["Start_nws"] >= both["Start_iem"]).all() and (both["End_nws"] <= both["End_iem"]).all()
+    assert (both["Start_nws"] != both["Start_iem"]).any()
+
+
+def test_a_low_of_exactly_32_is_a_freeze():
+    days = pd.date_range("2024-01-01", "2024-12-31")
+    daily = pd.DataFrame({"high": 60.0, "low": 45.0, "precip": 0.0, "snow": 0.0}, index=days)
+    daily.loc["2024-04-20", "low"] = 32  # Last spring freeze: exactly 32°
+    daily.loc["2024-10-15", "low"] = 32  # First fall freeze: exactly 32°
+    out, _ = iem.freeze_seasons(daily, 32)
+    import data_io as dio
+    assert [dio.day_of_year_text(out["Start"].iloc[0]), dio.day_of_year_text(out["End"].iloc[0])] == ["Apr 20", "Oct 15"]

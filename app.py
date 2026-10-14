@@ -44,7 +44,11 @@ state_defaults = {
     'yr_order': "Sorted", 'yr_rank_dir': "Highest", 'yr_style': "Bars", 'yr_top_n': 0, 'yr_word': "highest",
     'yr_highlight': "", 'yr_color': '#FF0000', 'yr_hl_color': '#00A000', 'yr_avg_line': True,
     'yr_avg_color': '#1F77B4', 'yr_avg_label': False, 'yr_trend': False, 'yr_trend_color': '#FFFFFF',
-    'yr_callout': False,
+    'yr_callout': False, 'yr_orient': "Vertical",
+    # Range Bars (floating bars, IEM #10 style)
+    'rg_orient': "Horizontal", 'rg_color': '#2E9E4F', 'rg_hl_color': '#FFD700', 'rg_highlight': "",
+    'rg_labels': "None", 'rg_avg_lines': True, 'rg_avg_color': '#FFFFFF', 'rg_last_n': 30, 'rg_callout': False,
+    'bar_orient': "Vertical",
 }
 
 # Station-data (IEM) panel choices; saved with projects so the data can be fetched again
@@ -59,13 +63,15 @@ NORMAL_PERIODS = {"NCEI 1991–2020": "ncei", "Full record": None}
 IEM_FALLBACK_NOTE = "IEM 1991–2020 station averages (not official NCEI normals)"
 MONTHS = list(month_name)[1:]
 iem_defaults = {
-    'iem_state': "OH", 'iem_station': "OHTCMH",  # Columbus Area, the home station 'normal_period': "NCEI 1991–2020", 'normals_fallback': False,
+    'iem_state': "OH", 'iem_station': "OHTCMH",  # Columbus Area, the home station
+    'normal_period': "NCEI 1991–2020", 'normals_fallback': False,
     'rt_var': "Rain", 'rt_start': "Jan 1", 'rt_year': TODAY.year, 'rt_to_latest': True, 'rt_end': TODAY,
     'rt_extend': False,
     'rb_mode': "Full year", 'rb_month': MONTHS[TODAY.month - 1], 'rb_year': TODAY.year,
     'rb_range': (TODAY - timedelta(days=30), TODAY - timedelta(days=1)),
     'yr_var': "Total precipitation", 'yr_period': "Year to date", 'yr_month': MONTHS[TODAY.month - 1],
     'yr_season': list(SEASONS)[0], 'yr_custom': (date(TODAY.year, 1, 1), TODAY), 'yr_max_missing': 3,
+    'rg_threshold': 32.0, 'rg_max_missing': 15,
 }
 # Internal counters, bumped to reset the data editor / uploaders; never saved to project files
 internal_defaults = {'csv_uploader_key': 0, 'json_uploader_key': 0}
@@ -82,7 +88,7 @@ if 'datasets' not in st.session_state:
     st.session_state.source_notes = {k: "Sample data" for k in dio.SCHEMAS}
     st.session_state.autoplot_mappings = {}
 if 'table_kinds' not in st.session_state:
-    st.session_state.table_kinds = {}  # Whether each layout's table holds numbers or dates
+    st.session_state.table_kinds = {"Range Bars": "Date"}  # Whether each layout's table holds numbers or dates
 
 # Allowed values for every widget-bound setting; shared by the widgets and project loading
 TEXT_COLORS = {"White": "white", "Black": "black", "Navy": "#022E67"}
@@ -93,19 +99,22 @@ CHOICES = {'chart_type': dio.CHART_TYPES, 'text_choice': list(TEXT_COLORS), 'mar
            'date_labels': ["Auto", "Month names", "Month + day", "Day numbers"], 'x_label_every': ["Auto", *charts.X_LABEL_STEPS],
            'rt_input': ["Running totals", "Daily amounts"], 'rb_style': ["Lines", "Bars"],
            'rb_band_style': ["Layered", "Simple"], 'rb_mark_shape': ["Dot", "Star"],
-           'yr_order': ["Sorted", "By year"], 'yr_rank_dir': ["Highest", "Lowest"], 'yr_style': ["Bars", "Dots", "Line"]}
+           'yr_order': ["Sorted", "By year"], 'yr_rank_dir': ["Highest", "Lowest"], 'yr_style': ["Bars", "Dots", "Line"],
+           'bar_orient': ["Vertical", "Horizontal"], 'yr_orient': ["Vertical", "Horizontal"],
+           'rg_orient': ["Horizontal", "Vertical"], 'rg_labels': ["None", "Ends", "Length"]}
 RANGES = {
     'width': (100, 7680), 'height': (100, 7680), 'x_sz': (10, 100), 'y_sz': (10, 100),
     'value_sz': (5, 80), 'line_width': (1, 25), 'marker_size': (1, 50), 'x_rot': (-90, 90),
     'bar_gap': (0.0, 0.9), 'y_step': (0.01, 1e9), 'grid_alpha': (0.0, 1.0), 'grid_width': (0.5, 8.0),
     'rt_fill_alpha': (0.0, 1.0), 'rt_env_alpha': (0.0, 1.0), 'rb_band_alpha': (0.0, 1.0), 'yr_top_n': (0, 500),
+    'rg_last_n': (0, 500),
 }
 COLOR_KEYS = ['last_c1', 'last_c2', 'highlight_color', 'grid_color', 'rt_obs_color', 'rt_norm_color',
               'rt_env_color', 'rt_high_color', 'rt_low_color', 'rt_surplus_color', 'rt_deficit_color',
               'rb_bar_color', 'rb_high_color', 'rb_low_color', 'rb_normal_color', 'rb_rec_high_color',
               'rb_rec_low_color', 'rb_record_color', 'rb_rec_high_line', 'rb_rec_low_line', 'rb_mark_color',
-              'yr_color', 'yr_hl_color', 'yr_avg_color', 'yr_trend_color']
-TEXT_KEYS = {'num_prefix': 8, 'num_suffix': 8, 'yr_word': 20, 'yr_highlight': 12}  # Free-text settings and their max length
+              'yr_color', 'yr_hl_color', 'yr_avg_color', 'yr_trend_color', 'rg_color', 'rg_hl_color', 'rg_avg_color']
+TEXT_KEYS = {'num_prefix': 8, 'num_suffix': 8, 'yr_word': 20, 'yr_highlight': 12, 'rg_highlight': 40}  # Free-text settings and their max length
 # Brand presets for the series colors: name -> hex
 COLOR_PRESETS = {"Navy": "#022E67", "Blue": "#045EA8", "Red": "#C80000", "White": "#FFFFFF"}
 
@@ -381,6 +390,18 @@ def build_from_iem(daily, station_label, ncei_id="", use_iem_normals=False):
             notes = [f"{missing} days with missing temperatures"] if missing else []
             shown = "–".join(sorted({str(start.year), str(end.year)}))
             note = f"IEM · {station_label} · records {span}, not counting {shown} · {normals}"
+        elif ct == "Range Bars":
+            thr = float(ss.rg_threshold)
+            # A low equal to the threshold counts (32° is a freeze), as the NWS defines it
+            df, info = iem.freeze_seasons(daily, thr, strictly_below=False, max_missing=int(ss.rg_max_missing))
+            ss.y_start_zero = False
+            ss.rg_highlight = df["Label"].iloc[-1] if len(df) else ""
+            skipped = info['skipped_years']
+            notes = [f"left out {len(skipped)} year{'s' if len(skipped) != 1 else ''} with more than "
+                     f"{ss.rg_max_missing} missing lows"] if skipped else []
+            if len(df) and pd.isna(df["End"].iloc[-1]):
+                notes.append(f"{df['Label'].iloc[-1]} has no fall freeze yet")
+            note = f"IEM · {station_label} · growing season: last spring / first fall low ≤ {thr:g}° · {span}"
         else:
             start_md, end_md, label = ranking_window(daily)
             df, info = iem.yearly_values(daily, ss.yr_var, start_md, end_md, int(ss.yr_max_missing))
@@ -438,7 +459,7 @@ def apply_autoplot(num, title, raw, targets):
 # --- 4. CHART TYPE & DATA INPUT ---
 def chart_type_label(c):
     return {"Running Total vs Normal": "★ Running Total", "Record & Normal Band": "★ Record Band",
-            "Year Ranking": "★ Year Ranking"}.get(c, c)
+            "Year Ranking": "★ Year Ranking", "Range Bars": "★ Range Bars"}.get(c, c)
 
 ct = st.session_state.chart_type
 key = active_key()
@@ -505,6 +526,14 @@ if is_preset:
                     c3.selectbox("Year", years, key='rb_year')
                 st.radio("Normal period", list(NORMAL_PERIODS), key='normal_period', horizontal=True,
                          help="IEM's #113 plot uses averages over the full record; pick Full record to match it.")
+            elif ct == "Range Bars":
+                c1, c2 = st.columns(2)
+                c1.number_input("Freeze threshold (°F)", -40.0, 60.0, step=1.0, key='rg_threshold',
+                                help="32° for a freeze, 28° for a hard freeze. Lows at the threshold count.")
+                c2.number_input("Leave out years missing more than this many lows", 0, 90, key='rg_max_missing')
+                st.caption("Builds the growing season for every year: the last spring low (Jan–Jun) and the first fall "
+                           "low (Jul–Dec) at or below the threshold, e.g. 32° and below. Pick how many years to show "
+                           "under ★ Preset Options.")
             else:
                 c1, c2, c3 = st.columns(3)
                 c1.selectbox("Variable", list(iem.RANK_VARS), key='yr_var')
@@ -617,6 +646,8 @@ with st.sidebar:
             st.slider("Point Size", *RANGES['marker_size'], key='marker_size')
             st.selectbox("Marker Style", MARKER_SYMBOLS, key='marker_symbol')
         elif ct == "Bar":
+            st.radio("Bar direction", CHOICES['bar_orient'], key='bar_orient', horizontal=True,
+                     help="Horizontal suits named rows: rankings, cities, event types.")
             st.slider("Bar Spacing / Gap", *RANGES['bar_gap'], key='bar_gap')
         if not is_preset:
             st.checkbox("Show Second Series", key='show_v2')
@@ -679,7 +710,7 @@ with st.sidebar:
                     b.color_picker("Marker color", key='rb_mark_color')
                     st.slider("Marker size", *RANGES['marker_size'], key='marker_size')
                 st.checkbox("Call-out on chart (e.g. 2 record highs)", key='rb_callout')
-            else:
+            elif ct == "Year Ranking":
                 year_opts = [""] + sorted(df_clean.dropna(subset=["Value"])["Year"].astype(str).unique(), reverse=True)
                 if st.session_state.yr_highlight not in year_opts: st.session_state.yr_highlight = ""
                 st.selectbox("Highlight year", year_opts, key='yr_highlight', format_func=lambda y: y or "Latest year")
@@ -690,6 +721,9 @@ with st.sidebar:
                 st.text_input("Ranking word", key='yr_word', max_chars=TEXT_KEYS['yr_word'],
                               help='Used in the rank, e.g. "3rd wettest of 130 years".')
                 st.radio("Style", CHOICES['yr_style'], key='yr_style', horizontal=True)
+                if st.session_state.yr_style != "Line":
+                    st.radio("Bar direction", CHOICES['yr_orient'], key='yr_orient', horizontal=True,
+                             help="Horizontal reads best for a sorted top-N list.")
                 if st.session_state.yr_style != "Bars": st.slider("Dot size", *RANGES['marker_size'], key='marker_size')
                 if st.session_state.yr_order == "Sorted":
                     st.number_input("Show top N years (0 = all)", *RANGES['yr_top_n'], key='yr_top_n',
@@ -703,9 +737,28 @@ with st.sidebar:
                     a.color_picker("Average color", key='yr_avg_color')
                     b.checkbox("Label it", key='yr_avg_label')
                 if st.session_state.yr_order == "By year":
-                    st.checkbox("Trend line", key='yr_trend', help="A straight-line fit, labeled with its change per decade.")
-                    if st.session_state.yr_trend: st.color_picker("Trend color", key='yr_trend_color')
+                    if st.session_state.yr_orient == "Horizontal" and st.session_state.yr_style != "Line":
+                        st.caption("The trend line is available with vertical bars.")
+                    else:
+                        st.checkbox("Trend line", key='yr_trend', help="A straight-line fit, labeled with its change per decade.")
+                        if st.session_state.yr_trend: st.color_picker("Trend color", key='yr_trend_color')
                 st.checkbox("Call-out on chart (e.g. 3rd wettest of 130 years)", key='yr_callout')
+            if ct == "Range Bars":
+                labels_rg = df_clean.dropna(subset=["Start"])["Label"].astype(str).tolist()
+                opts = [""] + list(reversed(labels_rg))
+                if st.session_state.rg_highlight not in opts: st.session_state.rg_highlight = ""
+                st.selectbox("Highlight row", opts, key='rg_highlight', format_func=lambda l: l or "None")
+                st.radio("Bar direction", CHOICES['rg_orient'], key='rg_orient', horizontal=True)
+                st.number_input("Show the last N rows (0 = all)", *RANGES['rg_last_n'], key='rg_last_n',
+                                help="More than about 40 bars get too thin to read on air.")
+                st.radio("Labels on bars", CHOICES['rg_labels'], key='rg_labels', horizontal=True,
+                         help='Ends: "Apr 15 · Oct 30". Length: "198 days" (or the difference for numbers).')
+                a, b = st.columns(2)
+                a.color_picker("Bar color", key='rg_color')
+                b.color_picker("Highlight color", key='rg_hl_color')
+                st.checkbox("Average start and end lines", key='rg_avg_lines')
+                if st.session_state.rg_avg_lines: st.color_picker("Average line color", key='rg_avg_color')
+                st.checkbox("Call-out on chart (e.g. 198 days)", key='rg_callout')
 
     with st.expander("🎨 Colors", expanded=not is_preset):
         st.selectbox("Text Color", list(TEXT_COLORS), key='text_choice')
@@ -728,6 +781,8 @@ with st.sidebar:
     with st.expander("🔢 Data Labels & Number Format"):
         if ct in dio.DATED_TYPES:
             st.caption("Value labels aren't drawn on this chart; the font settings apply to the call-out.")
+        elif ct == "Range Bars":
+            st.caption('Choose the labels on the bars under ★ Preset Options ("Labels on bars").')
         else:
             st.checkbox("Show Values on Chart", key='show_values')
         st.slider("Data Label Font Size", *RANGES['value_sz'], key='value_sz')
