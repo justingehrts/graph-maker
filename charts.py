@@ -380,7 +380,7 @@ def render_record_band(df, s, txt_col):
         size = max(40, (s['marker_size'] * (1.6 if star else 1.0)) ** 2)
         for mask, col in ((highs, "Actual High"), (lows, "Actual Low")):
             ax.scatter(x[mask], d.loc[mask, col], marker="*" if star else "o", s=size, color=s['rb_mark_color'],
-                       edgecolors=txt_col if star else "#3A3A1A", linewidths=1.5, zorder=5)
+                       edgecolors=txt_col if star else "#022E67", linewidths=1.5, zorder=5)
     if s['rb_callout']:
         ax.text(0.01, 0.98, record_text(int(highs.sum()), int(lows.sum())), transform=ax.transAxes, ha="left",
                 va="top", zorder=6, **_label_kw(s, txt_col))
