@@ -9,44 +9,45 @@ from datetime import date, datetime, timedelta
 import charts
 import data_io as dio
 import iem
+from palette import PALETTE, TEXT_COLORS, GRID_PALETTE, snap_settings
 
 st.set_page_config(page_title="Max Graph Maker", page_icon="📊", layout="wide")
 
 # --- 1. SETTINGS & SESSION STATE ---
 # Chart settings: the master list for project files
 state_defaults = {
-    'last_c1': '#045EA8', 'last_c2': '#C80000', 'show_v2': False,
+    'last_c1': '#285DA3', 'last_c2': '#A3BCC6', 'show_v2': False,
     'chart_type': "Bar", 'width': 1920, 'height': 1080,
     'text_choice': "White", 'x_sz': 28, 'y_sz': 28, 'y_step': 10.0, 'y_auto': True,
     'bar_gap': 0.22, 'y_start_zero': True, 'x_bold': True, 'y_bold': True,
     'show_values': False, 'value_sz': 24, 'value_bold': True,
-    'highlight_idx': "None", 'highlight_color': '#FFD700',
+    'highlight_idx': "None", 'highlight_color': '#59C8FF',
     'line_width': 8, 'marker_size': 15, 'marker_symbol': 'Circle',
     'x_rot': 0, 'x_label_every': "Auto",
     'value_kind': "Number",  # "Date": values are days of the year (e.g. last 80° day by year), shown as "Oct 18"
     'num_decimals': "Auto", 'num_prefix': "", 'num_suffix': "", 'num_thousands': False, 'axis_units': False,
-    'grid_show': True, 'grid_color': '#808080', 'grid_alpha': 0.3, 'grid_width': 0.8, 'grid_style': "Solid",
+    'grid_show': True, 'grid_color': '#A3BCC6', 'grid_alpha': 0.3, 'grid_width': 0.8, 'grid_style': "Solid",
     'date_labels': "Auto",
-    # Preset defaults follow IEM's autoplot colors, brightened only where a line would vanish on a dark background
+    # Bar and line colors come from the Weather Impact 2.0 palette (PALETTE); shaded bands keep IEM's colors for now
     # Running Total vs Normal (IEM #172)
-    'rt_input': "Running totals", 'rt_obs_color': '#FF2020', 'rt_norm_color': '#FFFFFF',
+    'rt_input': "Running totals", 'rt_obs_color': '#59C8FF', 'rt_norm_color': '#FFFFFF',
     'rt_show_envelope': True, 'rt_env_color': '#D2B48C', 'rt_env_alpha': 1.0,
-    'rt_show_extremes': True, 'rt_high_color': '#3060FF', 'rt_low_color': '#A52A2A',
+    'rt_show_extremes': True, 'rt_high_color': '#285DA3', 'rt_low_color': '#FF6B6B',
     'rt_show_fill': False, 'rt_surplus_color': '#2E9E4F', 'rt_deficit_color': '#B5651D', 'rt_fill_alpha': 0.35,
     'rt_callout': False,
     # Record & Normal Band (IEM #113)
-    'rb_band_style': "Layered", 'rb_style': "Lines", 'rb_bar_color': '#775321', 'rb_high_color': '#E8483B',
-    'rb_low_color': '#3FA9F5', 'rb_normal_color': '#B4DAB3', 'rb_rec_high_color': '#F2C2A7',
+    'rb_band_style': "Layered", 'rb_style': "Lines", 'rb_bar_color': '#285DA3', 'rb_high_color': '#FF6B6B',
+    'rb_low_color': '#59C8FF', 'rb_normal_color': '#B4DAB3', 'rb_rec_high_color': '#F2C2A7',
     'rb_rec_low_color': '#BBBBE2', 'rb_record_color': '#4A5260', 'rb_band_alpha': 1.0, 'rb_record_lines': True,
-    'rb_rec_high_line': '#E8231B', 'rb_rec_low_line': '#2E2EA0', 'rb_mark_records': True, 'rb_mark_shape': "Dot",
-    'rb_mark_color': '#FFD700', 'rb_callout': False,
+    'rb_rec_high_line': '#FF6B6B', 'rb_rec_low_line': '#285DA3', 'rb_mark_records': True, 'rb_mark_shape': "Dot",
+    'rb_mark_color': '#FFD633', 'rb_callout': False,
     # Year Ranking (IEM #107 / #189)
     'yr_order': "Sorted", 'yr_rank_dir': "Highest", 'yr_style': "Bars", 'yr_top_n': 0, 'yr_word': "highest",
-    'yr_highlight': "", 'yr_color': '#FF0000', 'yr_hl_color': '#00A000', 'yr_avg_line': True,
-    'yr_avg_color': '#1F77B4', 'yr_avg_label': False, 'yr_trend': False, 'yr_trend_color': '#FFFFFF',
+    'yr_highlight': "", 'yr_color': '#285DA3', 'yr_hl_color': '#59C8FF', 'yr_avg_line': True,
+    'yr_avg_color': '#FFFFFF', 'yr_avg_label': False, 'yr_trend': False, 'yr_trend_color': '#FFD633',
     'yr_callout': False, 'yr_orient': "Vertical",
     # Range Bars (floating bars, IEM #10 style)
-    'rg_orient': "Horizontal", 'rg_color': '#2E9E4F', 'rg_hl_color': '#FFD700', 'rg_highlight': "",
+    'rg_orient': "Horizontal", 'rg_color': '#2ECC71', 'rg_hl_color': '#59C8FF', 'rg_highlight': "",
     'rg_labels': "None", 'rg_avg_lines': True, 'rg_avg_color': '#FFFFFF', 'rg_last_n': 30, 'rg_callout': False,
     'bar_orient': "Vertical",
 }
@@ -91,7 +92,9 @@ if 'table_kinds' not in st.session_state:
     st.session_state.table_kinds = {"Range Bars": "Date"}  # Whether each layout's table holds numbers or dates
 
 # Allowed values for every widget-bound setting; shared by the widgets and project loading
-TEXT_COLORS = {"White": "white", "Black": "black", "Navy": "#022E67"}
+LINE_COLOR_KEYS = ['last_c1', 'last_c2', 'highlight_color', 'rt_obs_color', 'rt_norm_color', 'rt_high_color', 'rt_low_color', 'rb_bar_color', 'rb_high_color', 'rb_low_color', 'rb_rec_high_line', 'rb_rec_low_line', 'rb_mark_color', 'yr_color', 'yr_hl_color', 'yr_avg_color', 'yr_trend_color', 'rg_color', 'rg_hl_color', 'rg_avg_color']
+# Which colors each restricted setting may use; other color settings (shaded bands) are free for now
+PALETTE_SETS = {**{k: PALETTE for k in LINE_COLOR_KEYS}, 'grid_color': GRID_PALETTE}
 MARKER_SYMBOLS = list(charts.MARKERS)
 GRID_STYLES = charts.GRID_STYLES
 CHOICES = {'chart_type': dio.CHART_TYPES, 'text_choice': list(TEXT_COLORS), 'marker_symbol': MARKER_SYMBOLS,
@@ -115,8 +118,6 @@ COLOR_KEYS = ['last_c1', 'last_c2', 'highlight_color', 'grid_color', 'rt_obs_col
               'rb_rec_low_color', 'rb_record_color', 'rb_rec_high_line', 'rb_rec_low_line', 'rb_mark_color',
               'yr_color', 'yr_hl_color', 'yr_avg_color', 'yr_trend_color', 'rg_color', 'rg_hl_color', 'rg_avg_color']
 TEXT_KEYS = {'num_prefix': 8, 'num_suffix': 8, 'yr_word': 20, 'yr_highlight': 12, 'rg_highlight': 40}  # Free-text settings and their max length
-# Brand presets for the series colors: name -> hex
-COLOR_PRESETS = {"Navy": "#022E67", "Blue": "#045EA8", "Red": "#C80000", "White": "#FFFFFF"}
 
 def sanitize_setting(key, val):
     """Return a value safe to put into the widget for `key`, or None if it can't be used."""
@@ -128,6 +129,8 @@ def sanitize_setting(key, val):
         return type(lo)(min(max(val, lo), hi))
     if key in TEXT_KEYS:
         return val if isinstance(val, str) and len(val) <= TEXT_KEYS[key] else None
+    if key in PALETTE_SETS:
+        return val.upper() if isinstance(val, str) and val.upper() in PALETTE_SETS[key].values() else None
     if key in COLOR_KEYS:
         return val if isinstance(val, str) and re.fullmatch(r'#[0-9A-Fa-f]{6}', val) else None
     if key == 'highlight_idx':
@@ -276,6 +279,10 @@ def handle_json():
         settings['yr_order'], settings['yr_rank_dir'] = "Sorted", old_order
     if 'y_step' in settings and 'y_auto' not in settings:
         settings['y_auto'] = False  # Older projects chose their Y interval by hand
+    snapped = snap_settings(settings, PALETTE_SETS)  # Older projects: off-palette colors snap to the closest
+    if snapped:
+        st.toast("Colors outside the Weather Impact 2.0 palette were changed to the closest palette color: "
+                 + ", ".join(snapped))
     # Only load known keys with valid values; anything else keeps its current setting
     for k, v in settings.items():
         if k not in state_defaults: continue
@@ -618,18 +625,27 @@ def highlight_option_label(i, labels):
     if not label: return f"Row {i + 1}"
     return f"{label} (row {i + 1})" if labels.count(labels[i]) > 1 else label
 
-def color_swatches(target):
-    """Preset color buttons for the color setting `target`, painted in their own color; the active one gets a ring."""
+def palette_chiclets(label, target, options=PALETTE, store_name=False):
+    """Choose a color by clicking one of a row of small color squares (named on hover; a ring marks the selection).
+
+    Stores the hex in `target`, or the color's name when `store_name` (used for the text color).
+    """
+    current = st.session_state[target]
+    names = {(n if store_name else h): n for n, h in options.items()}
+    st.markdown(f"<div style='font-size:14px;margin-bottom:2px'>{label}: <b>{names.get(current, current)}</b></div>",
+                unsafe_allow_html=True)
     css = []
-    for col, (name, hex_val) in zip(st.columns(len(COLOR_PRESETS)), COLOR_PRESETS.items()):
-        btn_key = f"{target}_{name.lower()}"
-        active = st.session_state[target].upper() == hex_val
-        col.button(name, key=btn_key, help=f"{name} {hex_val}" + (" (selected)" if active else ""), width="stretch",
-                   on_click=set_preset_color, args=(target, hex_val))
-        text = "#000000" if hex_val == "#FFFFFF" else "#FFFFFF"
+    for i, (col, (name, hex_val)) in enumerate(zip(st.columns(len(options), gap="small"), options.items())):
+        btn_key = f"chip_{target}_{i}"
+        value = name if store_name else hex_val
+        active = current == value
+        col.button("\u00a0", key=btn_key, help=f"{name} {hex_val}" + (" (selected)" if active else ""), width="stretch",
+                   on_click=set_preset_color, args=(target, value))
         ring = "box-shadow: 0 0 0 2px var(--st-background-color, #fff), 0 0 0 4px #FF4B4B;" if active else ""
-        css.append(f".st-key-{btn_key} button {{ background: {hex_val}; color: {text}; border: 1px solid #888; padding: 0 2px; {ring} }}"
-                   f".st-key-{btn_key} button p {{ font-size: 0.75rem; font-weight: 600; }}")
+        sel = f".st-key-{btn_key} button"
+        css.append(f"{sel}, {sel}:hover, {sel}:focus, {sel}:active {{ background: {hex_val} !important; "
+                   f"border: 1px solid #6B7A8F; min-height: 26px; height: 26px; padding: 0; border-radius: 6px; {ring} }}"
+                   f"{sel}:hover {{ border-color: #FF4B4B; }}")
     st.html(f"<style>{''.join(css)}</style>")
 
 # Widgets are bound to session state via `key`, so each change applies on the first try
@@ -658,9 +674,8 @@ with st.sidebar:
                 st.radio("Table values are", CHOICES['rt_input'], key='rt_input', horizontal=True,
                          help="Daily amounts are added up for you.")
                 st.slider("Line Thickness", *RANGES['line_width'], key='line_width')
-                a, b = st.columns(2)
-                a.color_picker("This year", key='rt_obs_color')
-                b.color_picker("Normal (dashed)", key='rt_norm_color')
+                palette_chiclets("This year", 'rt_obs_color')
+                palette_chiclets("Normal (dashed)", 'rt_norm_color')
                 st.checkbox("Range of all years (shaded)", key='rt_show_envelope')
                 if st.session_state.rt_show_envelope:
                     a, b = st.columns(2)
@@ -668,9 +683,8 @@ with st.sidebar:
                     b.slider("Range opacity", *RANGES['rt_env_alpha'], key='rt_env_alpha')
                 st.checkbox("Highest and lowest years", key='rt_show_extremes')
                 if st.session_state.rt_show_extremes:
-                    a, b = st.columns(2)
-                    a.color_picker("Highest year", key='rt_high_color')
-                    b.color_picker("Lowest year", key='rt_low_color')
+                    palette_chiclets("Highest year", 'rt_high_color')
+                    palette_chiclets("Lowest year", 'rt_low_color')
                 st.checkbox("Shade above/below normal", key='rt_show_fill')
                 if st.session_state.rt_show_fill:
                     a, b = st.columns(2)
@@ -692,22 +706,19 @@ with st.sidebar:
                 if st.session_state.rb_band_style == "Layered":
                     st.checkbox("Record lines", key='rb_record_lines')
                     if st.session_state.rb_record_lines:
-                        a, b = st.columns(2)
-                        a.color_picker("Record-high line", key='rb_rec_high_line')
-                        b.color_picker("Record-low line", key='rb_rec_low_line')
+                        palette_chiclets("Record-high line", 'rb_rec_high_line')
+                        palette_chiclets("Record-low line", 'rb_rec_low_line')
                 st.radio("Show actual temperatures as", CHOICES['rb_style'], key='rb_style', horizontal=True)
-                a, b = st.columns(2)
                 if st.session_state.rb_style == "Bars":
-                    a.color_picker("Bars", key='rb_bar_color')
+                    palette_chiclets("Bars", 'rb_bar_color')
                 else:
-                    a.color_picker("Actual high", key='rb_high_color')
-                    b.color_picker("Actual low", key='rb_low_color')
+                    palette_chiclets("Actual high", 'rb_high_color')
+                    palette_chiclets("Actual low", 'rb_low_color')
                     st.slider("Line Thickness", *RANGES['line_width'], key='line_width')
                 st.checkbox("Mark new records", key='rb_mark_records')
                 if st.session_state.rb_mark_records:
-                    a, b = st.columns(2)
-                    a.radio("Marker", CHOICES['rb_mark_shape'], key='rb_mark_shape', horizontal=True)
-                    b.color_picker("Marker color", key='rb_mark_color')
+                    st.radio("Marker", CHOICES['rb_mark_shape'], key='rb_mark_shape', horizontal=True)
+                    palette_chiclets("Marker color", 'rb_mark_color')
                     st.slider("Marker size", *RANGES['marker_size'], key='marker_size')
                 st.checkbox("Call-out on chart (e.g. 2 record highs)", key='rb_callout')
             elif ct == "Year Ranking":
@@ -728,20 +739,18 @@ with st.sidebar:
                 if st.session_state.yr_order == "Sorted":
                     st.number_input("Show top N years (0 = all)", *RANGES['yr_top_n'], key='yr_top_n',
                                     help="The highlighted year is always shown.")
-                a, b = st.columns(2)
-                a.color_picker("Year color", key='yr_color')
-                b.color_picker("Highlight color", key='yr_hl_color')
+                palette_chiclets("Year color", 'yr_color')
+                palette_chiclets("Highlight color", 'yr_hl_color')
                 st.checkbox("Average line", key='yr_avg_line')
                 if st.session_state.yr_avg_line:
-                    a, b = st.columns(2)
-                    a.color_picker("Average color", key='yr_avg_color')
-                    b.checkbox("Label it", key='yr_avg_label')
+                    palette_chiclets("Average color", 'yr_avg_color')
+                    st.checkbox("Label the average", key='yr_avg_label')
                 if st.session_state.yr_order == "By year":
                     if st.session_state.yr_orient == "Horizontal" and st.session_state.yr_style != "Line":
                         st.caption("The trend line is available with vertical bars.")
                     else:
                         st.checkbox("Trend line", key='yr_trend', help="A straight-line fit, labeled with its change per decade.")
-                        if st.session_state.yr_trend: st.color_picker("Trend color", key='yr_trend_color')
+                        if st.session_state.yr_trend: palette_chiclets("Trend color", 'yr_trend_color')
                 st.checkbox("Call-out on chart (e.g. 3rd wettest of 130 years)", key='yr_callout')
             if ct == "Range Bars":
                 labels_rg = df_clean.dropna(subset=["Start"])["Label"].astype(str).tolist()
@@ -753,28 +762,27 @@ with st.sidebar:
                                 help="More than about 40 bars get too thin to read on air.")
                 st.radio("Labels on bars", CHOICES['rg_labels'], key='rg_labels', horizontal=True,
                          help='Ends: "Apr 15 · Oct 30". Length: "198 days" (or the difference for numbers).')
-                a, b = st.columns(2)
-                a.color_picker("Bar color", key='rg_color')
-                b.color_picker("Highlight color", key='rg_hl_color')
+                palette_chiclets("Bar color", 'rg_color')
+                palette_chiclets("Highlight color", 'rg_hl_color')
                 st.checkbox("Average start and end lines", key='rg_avg_lines')
-                if st.session_state.rg_avg_lines: st.color_picker("Average line color", key='rg_avg_color')
+                if st.session_state.rg_avg_lines: palette_chiclets("Average line color", 'rg_avg_color')
                 st.checkbox("Call-out on chart (e.g. 198 days)", key='rg_callout')
 
     with st.expander("🎨 Colors", expanded=not is_preset):
-        st.selectbox("Text Color", list(TEXT_COLORS), key='text_choice')
+        palette_chiclets("Text and axes", 'text_choice', TEXT_COLORS, store_name=True)
+        st.caption("Weather Impact 2.0 palette only. Text and axes are White or WI Navy; data labels and call-outs "
+                   "follow them.")
         if not is_preset:
-            st.color_picker("Series 1 Color", key='last_c1')
-            color_swatches('last_c1')
+            palette_chiclets("Series 1", 'last_c1')
             if st.session_state.show_v2:
-                st.color_picker("Series 2 Color", key='last_c2')
-                color_swatches('last_c2')
+                palette_chiclets("Series 2", 'last_c2')
             st.divider()
             labels = df_clean["Label"].tolist()
             h_opts = ["None"] + list(range(len(labels)))
             if st.session_state.highlight_idx not in h_opts: st.session_state.highlight_idx = "None"
             st.selectbox("Highlight Point", h_opts, key='highlight_idx', format_func=lambda i: highlight_option_label(i, labels),
                          help="Draws one point (Series 1) in the highlight color.")
-            st.color_picker("Highlight Color", key='highlight_color')
+            palette_chiclets("Highlight", 'highlight_color')
         else:
             st.caption("Chart colors for presets are in Preset Options.")
 
@@ -825,7 +833,7 @@ with st.sidebar:
     with st.expander("▦ Gridlines"):
         st.checkbox("Show Gridlines", key='grid_show')
         if st.session_state.grid_show:
-            st.color_picker("Gridline Color", key='grid_color')
+            palette_chiclets("Gridline color", 'grid_color', GRID_PALETTE)
             st.slider("Opacity", *RANGES['grid_alpha'], key='grid_alpha')
             st.slider("Thickness", *RANGES['grid_width'], step=0.1, key='grid_width')
             st.selectbox("Style", list(GRID_STYLES), key='grid_style')
@@ -833,7 +841,7 @@ with st.sidebar:
     txt_col = TEXT_COLORS[st.session_state.text_choice]
 
 # --- 6. PREVIEW CONTRAST CSS ---
-preview_bg = "#262730" if txt_col == "white" else "white"
+preview_bg = "#262730" if txt_col == TEXT_COLORS["White"] else "white"
 st.markdown(f"""<style> [data-testid="stImage"] {{ background-color: {preview_bg}; border-radius: 10px; padding: 20px; }} </style>""", unsafe_allow_html=True)
 
 # --- 7. PREVIEW & EXPORT ---

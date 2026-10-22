@@ -7,7 +7,9 @@ import pytest
 import streamlit as st
 from streamlit.testing.v1 import AppTest
 
+import data_io as dio
 import iem
+from palette import PALETTE
 
 APP = str(Path(__file__).parent.parent / "app.py")
 FIX = Path(__file__).parent / "fixtures"
@@ -338,3 +340,33 @@ def test_bar_direction_options():
     widget(at, "radio", "Order").set_value("Sorted").run()
     widget(at, "radio", "Bar direction").set_value("Horizontal").run()
     assert problems(at) == [] and any("trend line is available with vertical" in c.value for c in at.caption) is False
+
+
+
+BAND_PICKERS = {"rt_env_color", "rt_surplus_color", "rt_deficit_color", "rb_normal_color", "rb_rec_high_color",
+                "rb_rec_low_color", "rb_record_color"}
+
+
+def chips(at, target):
+    return [b for b in at.button if b.key and b.key.startswith(f"chip_{target}_")]
+
+
+@pytest.mark.parametrize("chart", dio.CHART_TYPES)
+def test_only_palette_colors_are_offered(chart):
+    at = new(chart_type=chart)
+    assert problems(at) == []
+    assert {p.key for p in at.color_picker} <= BAND_PICKERS  # Shaded bands keep their pickers for now
+    assert len(chips(at, "text_choice")) == 2 and len(chips(at, "grid_color")) == 3
+    assert len(chips(at, "last_c1")) == (len(PALETTE) if chart in dio.BASIC_TYPES else 0)
+    targets = {b.key[5:].rsplit("_", 1)[0] for b in at.button if b.key and b.key.startswith("chip_")}
+    for t in targets - {"text_choice"}:  # Every default is one of the colors offered for it
+        assert any(at.session_state[t] in b.help for b in chips(at, t)), t
+
+
+def test_clicking_a_chiclet_sets_the_color():
+    at = new()
+    chips(at, "last_c1")[list(PALETTE).index("Coral")].click().run()
+    assert at.session_state.last_c1 == PALETTE["Coral"]
+    assert "(selected)" in chips(at, "last_c1")[list(PALETTE).index("Coral")].help
+    chips(at, "text_choice")[1].click().run()
+    assert at.session_state.text_choice == "WI Navy" and problems(at) == []
