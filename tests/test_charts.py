@@ -102,3 +102,22 @@ def test_gradient_colors_become_solid_for_lines():
     draw("Line", pd.DataFrame({"Label": ["a", "b"], "Value 1": [1, 2], "Value 2": [None, None]}), last_c1=NAVY_GRAD,
          highlight_idx=0, highlight_color=BLUE_GRAD)
     draw("Year Ranking", dio.sample_data("Year Ranking"), yr_style="Dots", yr_color=NAVY_GRAD)
+
+
+def strips(ax):
+    return [p for p in ax.patches if not p.get_clip_on() and p.get_facecolor()[:3] == (2 / 255, 46 / 255, 103 / 255)]
+
+
+@pytest.mark.parametrize("ct", dio.CHART_TYPES)
+def test_label_strip_on_every_vertical_chart(monkeypatch, ct):
+    kw = dict(bar_orient="Vertical", yr_orient="Vertical", rg_orient="Vertical", x_rot=45, value_kind="Date" if ct == "Range Bars" else "Number")
+    ax = drawn_axes(monkeypatch, ct, dio.sample_data(dio.schema_key(ct)), **kw)
+    assert len(strips(ax)) == 1
+    assert all(t.get_color() == "#FFFFFF" for t in ax.get_xticklabels() if t.get_text())
+
+
+def test_no_strip_when_off_or_horizontal(monkeypatch):
+    df = dio.sample_data("Basic")
+    assert not strips(drawn_axes(monkeypatch, "Bar", df, x_label_band=False))
+    ax = drawn_axes(monkeypatch, "Bar", df, bar_orient="Horizontal")
+    assert not strips(ax) and all(t.get_color() == "white" for t in ax.get_yticklabels())

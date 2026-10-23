@@ -21,16 +21,14 @@ def test_restricted_sets():
 
 
 def test_snap_settings_changes_only_off_palette_restricted_colors():
-    settings = {'last_c1': "#045EA8", 'grid_color': "#FF6B6B", 'rb_normal_color': "#E0C084",
-                'text_choice': "Black"}
+    settings = {'last_c1': "#045EA8", 'grid_color': "#FF6B6B", 'rb_normal_color': "#E0C084"}
     notes = snap_settings(settings, SETS)
-    assert settings == {'last_c1': "#285DA3", 'grid_color': "#A3BCC6", 'rb_normal_color': "#E0C084",
-                        'text_choice': "WI Navy"}
+    assert settings == {'last_c1': "#285DA3", 'grid_color': "#A3BCC6", 'rb_normal_color': "#E0C084"}
     assert notes == ["#045EA8 → Blue", "#FF6B6B → Gray"]
 
 
 def test_snap_settings_leaves_palette_colors_alone():
-    settings = {'last_c1': "#d71b32", 'grid_color': "#022E67", 'text_choice': "White"}
+    settings = {'last_c1': "#d71b32", 'grid_color': "#022E67"}
     assert snap_settings(settings, SETS) == [] and settings['last_c1'] == "#d71b32"
 
 

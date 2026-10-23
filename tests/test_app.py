@@ -356,10 +356,10 @@ def test_only_palette_colors_are_offered(chart):
     at = new(chart_type=chart)
     assert problems(at) == []
     assert {p.key for p in at.color_picker} <= BAND_PICKERS  # Shaded bands keep their pickers for now
-    assert len(chips(at, "text_choice")) == 2 and len(chips(at, "grid_color")) == 3
+    assert not chips(at, "text_choice") and len(chips(at, "grid_color")) == 3  # Text is always WI Navy
     assert len(chips(at, "last_c1")) == {"Bar": len(PALETTE) + 3, "Line": len(PALETTE)}.get(chart, 0)  # Gradients for bars
     targets = {b.key[5:].rsplit("_", 1)[0] for b in at.button if b.key and b.key.startswith("chip_")}
-    for t in targets - {"text_choice"}:  # Every default is one of the colors offered for it
+    for t in targets:  # Every default is one of the colors offered for it
         assert any(at.session_state[t] in b.help for b in chips(at, t)), t
 
 
@@ -368,8 +368,6 @@ def test_clicking_a_chiclet_sets_the_color():
     chips(at, "last_c1")[list(PALETTE).index("Coral")].click().run()
     assert at.session_state.last_c1 == PALETTE["Coral"]
     assert "(selected)" in chips(at, "last_c1")[list(PALETTE).index("Coral")].help
-    chips(at, "text_choice")[1].click().run()
-    assert at.session_state.text_choice == "WI Navy" and problems(at) == []
 
 
 def test_gradients_are_offered_for_bars_only():
@@ -387,3 +385,10 @@ def test_label_position_inside():
     assert at.session_state.value_pos == "Inside" and problems(at) == []
     widget(at, "radio", "Chart Type").set_value("Line").run()
     assert not [r for r in at.radio if r.label == "Label position"]
+
+
+def test_label_strip_checkbox_for_vertical_charts_only():
+    at = new()
+    assert widget(at, "checkbox", "Navy strip behind X axis labels").value is True
+    widget(at, "radio", "Bar direction").set_value("Horizontal").run()
+    assert not [c for c in at.checkbox if c.label == "Navy strip behind X axis labels"] and problems(at) == []

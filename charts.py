@@ -13,16 +13,18 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from matplotlib.colors import LinearSegmentedColormap
+from matplotlib.patches import Rectangle
 from matplotlib.ticker import FixedLocator, MaxNLocator
 
 from data_io import DATE_REF_YEAR, format_number, round_day
 from iem import ordinal, rank_of, record_counts
-from palette import contrast_text, gradient_stops, solid
+from palette import PALETTE, contrast_text, gradient_stops, solid
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 GRID_STYLES = {"Solid": "-", "Dashed": "--", "Dotted": ":"}
 MARKERS = {"Circle": "o", "Square": "s", "Triangle": "^", "Diamond": "D"}
 MAX_Y_TICKS = 50
+STRIP_COLOR, STRIP_TEXT = PALETTE["WI Navy"], PALETTE["White"]  # The X axis label strip
 MAX_YEAR_LABELS = 25  # Year Ranking: label every year only up to this many bars
 
 
@@ -139,11 +141,38 @@ def _finish(fig, ax, s, txt_col, y_lo, y_hi, zero_line=True, horizontal=False):
         ax.grid(True, axis='x' if horizontal else 'y', color=s['grid_color'], alpha=s['grid_alpha'], linewidth=s['grid_width'],
                 linestyle=GRID_STYLES[s['grid_style']], zorder=1)
     ax.set_axisbelow(True)
+    band = s.get('x_label_band') and not horizontal
+    if band:  # White category labels centered in a WI Navy strip under the plot
+        pad_pt = s['x_sz'] * 0.45
+        ax.tick_params(axis='x', which='both', length=0, pad=pad_pt, labelcolor=STRIP_TEXT)
+        ax.spines['bottom'].set_visible(False)
     fig.tight_layout()
+    if band:
+        _label_strip(fig, ax, pad_pt)
     buf = io.BytesIO()
     fig.savefig(buf, format="png", transparent=True)
     plt.close(fig)
     return buf.getvalue()
+
+
+def _label_strip(fig, ax, pad_pt):
+    """The WI Navy strip behind the X axis labels: as tall as the tallest label (rotated ones too) plus padding."""
+    renderer = fig.canvas.get_renderer()
+    lo, hi = sorted(ax.get_xlim())
+    shown = [t.label1 for t in ax.xaxis.get_major_ticks()
+             if lo <= t.get_loc() <= hi and t.label1.get_visible() and t.label1.get_text()]
+    pad_px = pad_pt * fig.dpi / 72
+    band_px = max((t.get_window_extent(renderer).height for t in shown), default=0) + 2 * pad_px
+    if ax.get_window_extent(renderer).y0 < band_px + 4:  # Make room at the bottom of the image
+        fig.subplots_adjust(bottom=(band_px + 4) / (fig.get_figheight() * fig.dpi))
+    box = ax.get_window_extent(renderer)
+    for t in shown:  # A label at the very end of the axis (e.g. "Jan" on a date axis) moves inside the strip
+        ext = t.get_window_extent(renderer)
+        if ext.x0 < box.x0: t.set_horizontalalignment('left')
+        elif ext.x1 > box.x1: t.set_horizontalalignment('right')
+    frac = band_px / box.height
+    ax.add_patch(Rectangle((0, -frac), 1, frac, transform=ax.transAxes, clip_on=False, color=STRIP_COLOR,
+                           linewidth=0, zorder=0.2))
 
 
 def _date_axis(ax, dates, s):

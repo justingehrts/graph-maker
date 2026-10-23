@@ -51,8 +51,6 @@ def snap_settings(settings, sets):
 
     `sets` maps each restricted setting to its allowed {name: hex}. Returns the changes as "#OLD → Name" notes.
     """
-    if settings.get('text_choice') in ("Black", "Navy"):  # Earlier text choices
-        settings['text_choice'] = "WI Navy"
     notes = []
     for k, allowed in sets.items():
         v = settings.get(k)

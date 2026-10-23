@@ -18,19 +18,19 @@ st.set_page_config(page_title="Max Graph Maker", page_icon="📊", layout="wide"
 state_defaults = {
     'last_c1': '#285DA3', 'last_c2': '#A3BCC6', 'show_v2': False,
     'chart_type': "Bar", 'width': 1920, 'height': 1080,
-    'text_choice': "White", 'x_sz': 28, 'y_sz': 28, 'y_step': 10.0, 'y_auto': True,
+    'x_sz': 28, 'y_sz': 28, 'y_step': 10.0, 'y_auto': True,
     'bar_gap': 0.22, 'y_start_zero': True, 'x_bold': True, 'y_bold': True,
     'show_values': False, 'value_pos': "End", 'value_sz': 24, 'value_bold': True,
     'highlight_idx': "None", 'highlight_color': '#59C8FF',
     'line_width': 8, 'marker_size': 15, 'marker_symbol': 'Circle',
-    'x_rot': 0, 'x_label_every': "Auto",
+    'x_rot': 0, 'x_label_every': "Auto", 'x_label_band': True,
     'value_kind': "Number",  # "Date": values are days of the year (e.g. last 80° day by year), shown as "Oct 18"
     'num_decimals': "Auto", 'num_prefix': "", 'num_suffix': "", 'num_thousands': False, 'axis_units': False,
-    'grid_show': True, 'grid_color': '#A3BCC6', 'grid_alpha': 0.3, 'grid_width': 0.8, 'grid_style': "Solid",
+    'grid_show': True, 'grid_color': '#022E67', 'grid_alpha': 0.6, 'grid_width': 0.8, 'grid_style': "Solid",
     'date_labels': "Auto",
     # Bar and line colors come from the Weather Impact 2.0 palette (PALETTE); shaded bands keep IEM's colors for now
     # Running Total vs Normal (IEM #172)
-    'rt_input': "Running totals", 'rt_obs_color': '#59C8FF', 'rt_norm_color': '#FFFFFF',
+    'rt_input': "Running totals", 'rt_obs_color': '#59C8FF', 'rt_norm_color': '#022E67',
     'rt_show_envelope': True, 'rt_env_color': '#D2B48C', 'rt_env_alpha': 1.0,
     'rt_show_extremes': True, 'rt_high_color': '#285DA3', 'rt_low_color': '#FF6B6B',
     'rt_show_fill': False, 'rt_surplus_color': '#2E9E4F', 'rt_deficit_color': '#B5651D', 'rt_fill_alpha': 0.35,
@@ -44,11 +44,11 @@ state_defaults = {
     # Year Ranking (IEM #107 / #189)
     'yr_order': "Sorted", 'yr_rank_dir': "Highest", 'yr_style': "Bars", 'yr_top_n': 0, 'yr_word': "highest",
     'yr_highlight': "", 'yr_color': '#285DA3', 'yr_hl_color': '#59C8FF', 'yr_avg_line': True,
-    'yr_avg_color': '#FFFFFF', 'yr_avg_label': False, 'yr_trend': False, 'yr_trend_color': '#FFD633',
+    'yr_avg_color': '#022E67', 'yr_avg_label': False, 'yr_trend': False, 'yr_trend_color': '#FFD633',
     'yr_callout': False, 'yr_orient': "Vertical",
     # Range Bars (floating bars, IEM #10 style)
     'rg_orient': "Horizontal", 'rg_color': '#2ECC71', 'rg_hl_color': '#59C8FF', 'rg_highlight': "",
-    'rg_labels': "None", 'rg_avg_lines': True, 'rg_avg_color': '#FFFFFF', 'rg_last_n': 30, 'rg_callout': False,
+    'rg_labels': "None", 'rg_avg_lines': True, 'rg_avg_color': '#022E67', 'rg_last_n': 30, 'rg_callout': False,
     'bar_orient': "Vertical",
 }
 
@@ -98,7 +98,7 @@ BAR_COLOR_KEYS = ['last_c1', 'last_c2', 'highlight_color', 'yr_color', 'yr_hl_co
 PALETTE_SETS = {**{k: BAR_PALETTE if k in BAR_COLOR_KEYS else PALETTE for k in LINE_COLOR_KEYS}, 'grid_color': GRID_PALETTE}
 MARKER_SYMBOLS = list(charts.MARKERS)
 GRID_STYLES = charts.GRID_STYLES
-CHOICES = {'chart_type': dio.CHART_TYPES, 'text_choice': list(TEXT_COLORS), 'marker_symbol': MARKER_SYMBOLS,
+CHOICES = {'chart_type': dio.CHART_TYPES, 'marker_symbol': MARKER_SYMBOLS,
            'num_decimals': ["Auto", "0", "1", "2", "3"], 'grid_style': list(GRID_STYLES), 'value_kind': ["Number", "Date"],
            'date_labels': ["Auto", "Month names", "Month + day", "Day numbers"], 'x_label_every': ["Auto", *charts.X_LABEL_STEPS],
            'rt_input': ["Running totals", "Daily amounts"], 'rb_style': ["Lines", "Bars"],
@@ -627,14 +627,21 @@ def highlight_option_label(i, labels):
     if not label: return f"Row {i + 1}"
     return f"{label} (row {i + 1})" if labels.count(labels[i]) > 1 else label
 
-def palette_chiclets(label, target, options=PALETTE, store_name=False):
+def horizontal_chart():
+    """Whether the current chart puts its categories on the left (so its values run along the bottom)."""
+    ss = st.session_state
+    return ((ss.chart_type == "Bar" and ss.bar_orient == "Horizontal")
+            or (ss.chart_type == "Year Ranking" and ss.yr_orient == "Horizontal" and ss.yr_style != "Line")
+            or (ss.chart_type == "Range Bars" and ss.rg_orient == "Horizontal"))
+
+def palette_chiclets(label, target, options=PALETTE):
     """Choose a color by clicking one of a row of small color squares (named on hover; a ring marks the selection).
 
-    Stores the hex in `target`, or the color's name when `store_name` (used for the text color). Gradients
+    Stores the hex in `target`. Gradients
     ("#END-#BASE") get a second row, lined up under the solid colors.
     """
     current = st.session_state[target]
-    names = {(n if store_name else h): n for n, h in {**BAR_PALETTE, **options}.items()}
+    names = {h: n for n, h in {**BAR_PALETTE, **options}.items()}
     st.markdown(f"<div style='font-size:14px;margin-bottom:2px'>{label}: <b>{names.get(current, current)}</b></div>",
                 unsafe_allow_html=True)
     css = []
@@ -644,11 +651,10 @@ def palette_chiclets(label, target, options=PALETTE, store_name=False):
     if grads: cells += st.columns(len(solids), gap="small")[:len(grads)]
     for i, (col, (name, hex_val)) in enumerate(zip(cells, solids + grads)):
         btn_key = f"chip_{target}_{i}"
-        value = name if store_name else hex_val
-        active = current == value
+        active = current == hex_val
         col.button("\u00a0", key=btn_key, help=f"{name} {hex_val.replace('-', ' to ')}" + (" (selected)" if active else ""),
                    width="stretch",
-                   on_click=set_preset_color, args=(target, value))
+                   on_click=set_preset_color, args=(target, hex_val))
         ring = "box-shadow: 0 0 0 2px var(--st-background-color, #fff), 0 0 0 4px #FF4B4B;" if active else ""
         sel = f".st-key-{btn_key} button"
         ends = hex_val.split("-")  # A gradient's value end at the top, as on a vertical bar
@@ -780,9 +786,8 @@ with st.sidebar:
                 st.checkbox("Call-out on chart (e.g. 198 days)", key='rg_callout')
 
     with st.expander("🎨 Colors", expanded=not is_preset):
-        palette_chiclets("Text and axes", 'text_choice', TEXT_COLORS, store_name=True)
-        st.caption("Weather Impact 2.0 palette only. Text and axes are White or WI Navy; data labels and call-outs "
-                   "follow them.")
+        st.caption("Weather Impact 2.0 palette only. Text, axes, data labels and call-outs are WI Navy for Max's "
+                   "white background.")
         if not is_preset:
             bar_options = BAR_PALETTE if ct == "Bar" else PALETTE  # Gradients are for bars only
             palette_chiclets("Series 1", 'last_c1', bar_options)
@@ -846,6 +851,9 @@ with st.sidebar:
         st.slider("X Axis Label Size", *RANGES['x_sz'], key='x_sz')
         st.checkbox("X Axis Labels Bold", key='x_bold')
         st.slider("X Label Rotation (Degrees)", *RANGES['x_rot'], key='x_rot')
+        if not horizontal_chart():
+            st.checkbox("Navy strip behind X axis labels", key='x_label_band',
+                        help="White labels on a WI Navy strip under the chart, as on Weather Impact bar graphics.")
 
     with st.expander("▦ Gridlines"):
         st.checkbox("Show Gridlines", key='grid_show')
@@ -855,11 +863,10 @@ with st.sidebar:
             st.slider("Thickness", *RANGES['grid_width'], step=0.1, key='grid_width')
             st.selectbox("Style", list(GRID_STYLES), key='grid_style')
 
-    txt_col = TEXT_COLORS[st.session_state.text_choice]
+txt_col = TEXT_COLORS["WI Navy"]  # Max's backgrounds are white
 
-# --- 6. PREVIEW CONTRAST CSS ---
-preview_bg = "#262730" if txt_col == TEXT_COLORS["White"] else "white"
-st.markdown(f"""<style> [data-testid="stImage"] {{ background-color: {preview_bg}; border-radius: 10px; padding: 20px; }} </style>""", unsafe_allow_html=True)
+# --- 6. PREVIEW BACKGROUND ---
+st.markdown("""<style> [data-testid="stImage"] { background-color: white; border-radius: 10px; padding: 20px; } </style>""", unsafe_allow_html=True)
 
 # --- 7. PREVIEW & EXPORT ---
 settings = {k: st.session_state[k] for k in state_defaults}
