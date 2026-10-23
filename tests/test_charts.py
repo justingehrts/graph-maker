@@ -64,3 +64,41 @@ def test_range_bars_season_across_new_year_and_numbers():
 def test_range_bars_last_n_rows():
     df = dio.sample_data("Range Bars")
     assert len(charts.range_series(df, dict(BASE, value_kind="Date", rg_last_n=10))) == 10
+
+
+NAVY_GRAD, BLUE_GRAD = "#045EA8-#022E67", "#59C8FF-#99DDFF"
+
+
+def drawn_axes(monkeypatch, ct, df, **kw):
+    """Render, returning the chart's axes so tests can look at what was drawn."""
+    seen = {}
+    real = charts._finish
+    monkeypatch.setattr(charts, "_finish", lambda fig, ax, *a, **k: seen.setdefault("ax", ax) and real(fig, ax, *a, **k))
+    draw(ct, df, **kw)
+    return seen["ax"]
+
+
+@pytest.mark.parametrize("orient", ["Vertical", "Horizontal"])
+def test_gradient_bars_and_inside_labels(monkeypatch, orient):
+    df = pd.DataFrame({"Label": ["Mon", "Tue", "Wed"], "Value 1": [80, 2, 60], "Value 2": [None] * 3})
+    ax = drawn_axes(monkeypatch, "Bar", df, bar_orient=orient, last_c1=BLUE_GRAD, highlight_idx=2,
+                    highlight_color=NAVY_GRAD, show_values=True, value_pos="Inside")
+    assert len(ax.images) == 3  # One gradient per bar
+    labels = {t.get_text(): t for t in ax.texts}
+    assert labels["80"].get_color() == "#022E67"  # WI Navy on Highlight Blue
+    assert labels["60"].get_color() == "#FFFFFF"  # White on navy
+    assert labels["2"].get_color() == "white"  # Too short: past the end, in the axis color
+    assert labels["80"].get_position()[1 if orient == "Vertical" else 0] < 80  # Inside the bar
+
+
+def test_gradient_bars_in_year_ranking_and_range_bars(monkeypatch):
+    ax = drawn_axes(monkeypatch, "Year Ranking", dio.sample_data("Year Ranking"), yr_color=NAVY_GRAD, yr_top_n=10)
+    assert len(ax.images) >= 10
+    ax = drawn_axes(monkeypatch, "Range Bars", dio.sample_data("Range Bars"), rg_color=BLUE_GRAD, value_kind="Date")
+    assert ax.images
+
+
+def test_gradient_colors_become_solid_for_lines():
+    draw("Line", pd.DataFrame({"Label": ["a", "b"], "Value 1": [1, 2], "Value 2": [None, None]}), last_c1=NAVY_GRAD,
+         highlight_idx=0, highlight_color=BLUE_GRAD)
+    draw("Year Ranking", dio.sample_data("Year Ranking"), yr_style="Dots", yr_color=NAVY_GRAD)

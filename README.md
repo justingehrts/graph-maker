@@ -5,7 +5,7 @@ A Streamlit app for building chart graphics for on-air weather segments, exporte
 ## Features
 
 - Enter data in the table, paste cells straight from Excel/Google Sheets, or import a CSV/Excel file (first column = labels, next 1–2 columns = numbers)
-- Bar or line charts with one or two series, a highlighted point, and optional data labels
+- Bar or line charts with one or two series, a highlighted point, and optional data labels, which can sit past the end of each bar or inside it (in White or WI Navy, whichever reads better on the bar)
 - ★ Climate presets (pick them in the Chart Type row at the top) that can pull a station's full daily history from the Iowa Environmental Mesonet and are styled after IEM's own autoplots:
   - **Running Total vs Normal** (like #172): season-to-date rain or snow against normal, with the range of all years and the highest/lowest years
   - **Record & Normal Band** (like #113): daily highs and lows over warm/cool record bands and the normal range, for a month or a full year, with new records marked
@@ -18,6 +18,7 @@ A Streamlit app for building chart graphics for on-air weather segments, exporte
 - Colors follow the Weather Impact 2.0 palette (`palette.py`), chosen by clicking color chiclets:
   - **Text and axes** (including data labels and call-outs): White or WI Navy
   - **Bars, lines and markers:** White, WI Navy, Highlight Blue, Breaking Red (for Weather Impact Alert states), Blue, Yellow, Green, Coral or Gray
+  - **Bar gradients:** Navy, Highlight Blue and Red, for Bar charts, Year Ranking and Range Bars; the stronger color is at the bar's end
   - **Gridlines:** White, WI Navy or Gray
   - **Shaded bands** (record and normal ranges, above/below-normal fills) keep their own color pickers for now
   - Older project files with other colors load with each one changed to the closest palette color

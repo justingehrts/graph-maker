@@ -9,7 +9,7 @@ from datetime import date, datetime, timedelta
 import charts
 import data_io as dio
 import iem
-from palette import PALETTE, TEXT_COLORS, GRID_PALETTE, snap_settings
+from palette import BAR_PALETTE, GRADIENTS, PALETTE, TEXT_COLORS, GRID_PALETTE, snap_settings
 
 st.set_page_config(page_title="Max Graph Maker", page_icon="📊", layout="wide")
 
@@ -20,7 +20,7 @@ state_defaults = {
     'chart_type': "Bar", 'width': 1920, 'height': 1080,
     'text_choice': "White", 'x_sz': 28, 'y_sz': 28, 'y_step': 10.0, 'y_auto': True,
     'bar_gap': 0.22, 'y_start_zero': True, 'x_bold': True, 'y_bold': True,
-    'show_values': False, 'value_sz': 24, 'value_bold': True,
+    'show_values': False, 'value_pos': "End", 'value_sz': 24, 'value_bold': True,
     'highlight_idx': "None", 'highlight_color': '#59C8FF',
     'line_width': 8, 'marker_size': 15, 'marker_symbol': 'Circle',
     'x_rot': 0, 'x_label_every': "Auto",
@@ -94,7 +94,8 @@ if 'table_kinds' not in st.session_state:
 # Allowed values for every widget-bound setting; shared by the widgets and project loading
 LINE_COLOR_KEYS = ['last_c1', 'last_c2', 'highlight_color', 'rt_obs_color', 'rt_norm_color', 'rt_high_color', 'rt_low_color', 'rb_bar_color', 'rb_high_color', 'rb_low_color', 'rb_rec_high_line', 'rb_rec_low_line', 'rb_mark_color', 'yr_color', 'yr_hl_color', 'yr_avg_color', 'yr_trend_color', 'rg_color', 'rg_hl_color', 'rg_avg_color']
 # Which colors each restricted setting may use; other color settings (shaded bands) are free for now
-PALETTE_SETS = {**{k: PALETTE for k in LINE_COLOR_KEYS}, 'grid_color': GRID_PALETTE}
+BAR_COLOR_KEYS = ['last_c1', 'last_c2', 'highlight_color', 'yr_color', 'yr_hl_color', 'rg_color', 'rg_hl_color']  # Can be gradients
+PALETTE_SETS = {**{k: BAR_PALETTE if k in BAR_COLOR_KEYS else PALETTE for k in LINE_COLOR_KEYS}, 'grid_color': GRID_PALETTE}
 MARKER_SYMBOLS = list(charts.MARKERS)
 GRID_STYLES = charts.GRID_STYLES
 CHOICES = {'chart_type': dio.CHART_TYPES, 'text_choice': list(TEXT_COLORS), 'marker_symbol': MARKER_SYMBOLS,
@@ -104,7 +105,8 @@ CHOICES = {'chart_type': dio.CHART_TYPES, 'text_choice': list(TEXT_COLORS), 'mar
            'rb_band_style': ["Layered", "Simple"], 'rb_mark_shape': ["Dot", "Star"],
            'yr_order': ["Sorted", "By year"], 'yr_rank_dir': ["Highest", "Lowest"], 'yr_style': ["Bars", "Dots", "Line"],
            'bar_orient': ["Vertical", "Horizontal"], 'yr_orient': ["Vertical", "Horizontal"],
-           'rg_orient': ["Horizontal", "Vertical"], 'rg_labels': ["None", "Ends", "Length"]}
+           'rg_orient': ["Horizontal", "Vertical"], 'rg_labels': ["None", "Ends", "Length"],
+           'value_pos': ["End", "Inside"]}
 RANGES = {
     'width': (100, 7680), 'height': (100, 7680), 'x_sz': (10, 100), 'y_sz': (10, 100),
     'value_sz': (5, 80), 'line_width': (1, 25), 'marker_size': (1, 50), 'x_rot': (-90, 90),
@@ -628,22 +630,30 @@ def highlight_option_label(i, labels):
 def palette_chiclets(label, target, options=PALETTE, store_name=False):
     """Choose a color by clicking one of a row of small color squares (named on hover; a ring marks the selection).
 
-    Stores the hex in `target`, or the color's name when `store_name` (used for the text color).
+    Stores the hex in `target`, or the color's name when `store_name` (used for the text color). Gradients
+    ("#END-#BASE") get a second row, lined up under the solid colors.
     """
     current = st.session_state[target]
-    names = {(n if store_name else h): n for n, h in options.items()}
+    names = {(n if store_name else h): n for n, h in {**BAR_PALETTE, **options}.items()}
     st.markdown(f"<div style='font-size:14px;margin-bottom:2px'>{label}: <b>{names.get(current, current)}</b></div>",
                 unsafe_allow_html=True)
     css = []
-    for i, (col, (name, hex_val)) in enumerate(zip(st.columns(len(options), gap="small"), options.items())):
+    solids = [item for item in options.items() if item[1] not in GRADIENTS.values()]
+    grads = [item for item in options.items() if item[1] in GRADIENTS.values()]
+    cells = list(st.columns(len(solids), gap="small"))
+    if grads: cells += st.columns(len(solids), gap="small")[:len(grads)]
+    for i, (col, (name, hex_val)) in enumerate(zip(cells, solids + grads)):
         btn_key = f"chip_{target}_{i}"
         value = name if store_name else hex_val
         active = current == value
-        col.button("\u00a0", key=btn_key, help=f"{name} {hex_val}" + (" (selected)" if active else ""), width="stretch",
+        col.button("\u00a0", key=btn_key, help=f"{name} {hex_val.replace('-', ' to ')}" + (" (selected)" if active else ""),
+                   width="stretch",
                    on_click=set_preset_color, args=(target, value))
         ring = "box-shadow: 0 0 0 2px var(--st-background-color, #fff), 0 0 0 4px #FF4B4B;" if active else ""
         sel = f".st-key-{btn_key} button"
-        css.append(f"{sel}, {sel}:hover, {sel}:focus, {sel}:active {{ background: {hex_val} !important; "
+        ends = hex_val.split("-")  # A gradient's value end at the top, as on a vertical bar
+        fill = f"linear-gradient(to bottom, {ends[0]}, {ends[1]})" if len(ends) == 2 else hex_val
+        css.append(f"{sel}, {sel}:hover, {sel}:focus, {sel}:active {{ background: {fill} !important; "
                    f"border: 1px solid #6B7A8F; min-height: 26px; height: 26px; padding: 0; border-radius: 6px; {ring} }}"
                    f"{sel}:hover {{ border-color: #FF4B4B; }}")
     st.html(f"<style>{''.join(css)}</style>")
@@ -739,8 +749,9 @@ with st.sidebar:
                 if st.session_state.yr_order == "Sorted":
                     st.number_input("Show top N years (0 = all)", *RANGES['yr_top_n'], key='yr_top_n',
                                     help="The highlighted year is always shown.")
-                palette_chiclets("Year color", 'yr_color')
-                palette_chiclets("Highlight color", 'yr_hl_color')
+                yr_options = BAR_PALETTE if st.session_state.yr_style == "Bars" else PALETTE
+                palette_chiclets("Year color", 'yr_color', yr_options)
+                palette_chiclets("Highlight color", 'yr_hl_color', yr_options)
                 st.checkbox("Average line", key='yr_avg_line')
                 if st.session_state.yr_avg_line:
                     palette_chiclets("Average color", 'yr_avg_color')
@@ -762,8 +773,8 @@ with st.sidebar:
                                 help="More than about 40 bars get too thin to read on air.")
                 st.radio("Labels on bars", CHOICES['rg_labels'], key='rg_labels', horizontal=True,
                          help='Ends: "Apr 15 · Oct 30". Length: "198 days" (or the difference for numbers).')
-                palette_chiclets("Bar color", 'rg_color')
-                palette_chiclets("Highlight color", 'rg_hl_color')
+                palette_chiclets("Bar color", 'rg_color', BAR_PALETTE)
+                palette_chiclets("Highlight color", 'rg_hl_color', BAR_PALETTE)
                 st.checkbox("Average start and end lines", key='rg_avg_lines')
                 if st.session_state.rg_avg_lines: palette_chiclets("Average line color", 'rg_avg_color')
                 st.checkbox("Call-out on chart (e.g. 198 days)", key='rg_callout')
@@ -773,16 +784,17 @@ with st.sidebar:
         st.caption("Weather Impact 2.0 palette only. Text and axes are White or WI Navy; data labels and call-outs "
                    "follow them.")
         if not is_preset:
-            palette_chiclets("Series 1", 'last_c1')
+            bar_options = BAR_PALETTE if ct == "Bar" else PALETTE  # Gradients are for bars only
+            palette_chiclets("Series 1", 'last_c1', bar_options)
             if st.session_state.show_v2:
-                palette_chiclets("Series 2", 'last_c2')
+                palette_chiclets("Series 2", 'last_c2', bar_options)
             st.divider()
             labels = df_clean["Label"].tolist()
             h_opts = ["None"] + list(range(len(labels)))
             if st.session_state.highlight_idx not in h_opts: st.session_state.highlight_idx = "None"
             st.selectbox("Highlight Point", h_opts, key='highlight_idx', format_func=lambda i: highlight_option_label(i, labels),
                          help="Draws one point (Series 1) in the highlight color.")
-            palette_chiclets("Highlight", 'highlight_color')
+            palette_chiclets("Highlight", 'highlight_color', bar_options)
         else:
             st.caption("Chart colors for presets are in Preset Options.")
 
@@ -793,6 +805,11 @@ with st.sidebar:
             st.caption('Choose the labels on the bars under ★ Preset Options ("Labels on bars").')
         else:
             st.checkbox("Show Values on Chart", key='show_values')
+            if st.session_state.show_values and (ct == "Bar" or (ct == "Year Ranking" and st.session_state.yr_style == "Bars")):
+                st.radio("Label position", CHOICES['value_pos'], key='value_pos', horizontal=True,
+                         format_func=lambda k: {"End": "Past the end", "Inside": "Inside the bar"}[k],
+                         help="Inside labels are White or WI Navy, whichever reads better on the bar. A bar too short "
+                              "for its label gets it past the end.")
         st.slider("Data Label Font Size", *RANGES['value_sz'], key='value_sz')
         st.checkbox("Data Labels Bold", key='value_bold')
         st.radio("Values are", CHOICES['value_kind'], key='value_kind', horizontal=True,

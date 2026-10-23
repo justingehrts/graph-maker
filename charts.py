@@ -12,10 +12,12 @@ import matplotlib.font_manager as fm
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from matplotlib.colors import LinearSegmentedColormap
 from matplotlib.ticker import FixedLocator, MaxNLocator
 
 from data_io import DATE_REF_YEAR, format_number, round_day
 from iem import ordinal, rank_of, record_counts
+from palette import contrast_text, gradient_stops, solid
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 GRID_STYLES = {"Solid": "-", "Dashed": "--", "Dotted": ":"}
@@ -181,6 +183,60 @@ def _categories(ax, labels, shown, horizontal):
         if n: ax.set_xlim(-0.6, n - 0.4)
 
 
+def _paint_gradients(ax, patches, colors, horizontal):
+    """Fill bars whose color is a gradient, from its first color at the bar's value end to its second at the base.
+
+    Bars are drawn with solid colors first; a gradient image clipped to each bar then covers it.
+    """
+    ramp = np.linspace(0, 1, 256)
+    for p, c in zip(patches, colors):
+        stops = gradient_stops(c)
+        x0, y0, w, h = p.get_x(), p.get_y(), p.get_width(), p.get_height()
+        if not stops or not all(np.isfinite([x0, y0, w, h])) or w == 0 or h == 0: continue
+        # Base (y0 or x0) to value end (y0 + h or x0 + w); flipped extents handle bars below zero
+        img = ramp[None, :] if horizontal else ramp[:, None]
+        im = ax.imshow(img, cmap=LinearSegmentedColormap.from_list("bar", [stops[1], stops[0]]), aspect="auto",
+                       origin="lower", extent=(x0, x0 + w, y0, y0 + h), interpolation="bilinear",
+                       zorder=p.get_zorder())
+        im.set_clip_path(p)
+
+
+def _bar(ax, horizontal, pos, length, colors, thick, base=None, zorder=2):
+    """Bars (vertical or horizontal) in palette colors or gradients; returns the BarContainer."""
+    kw = dict(color=[solid(c) for c in colors], zorder=zorder)
+    if horizontal:
+        bars = ax.barh(pos, length, height=thick, left=base, **kw)
+    else:
+        bars = ax.bar(pos, length, width=thick, bottom=base, **kw)
+    _paint_gradients(ax, bars.patches, colors, horizontal)
+    return bars
+
+
+def _bar_labels(ax, patches, texts, colors, s, txt_col, horizontal, span):
+    """Value labels past each bar's end, or inside it near the end ("Inside" position) in White or WI Navy,
+    whichever reads better on the bar. Bars too short for their label get it past the end instead."""
+    axis_px = (s['width'] if horizontal else s['height']) * 0.8  # Rough length of the value axis in pixels
+    per_px = span / axis_px
+    for p, text, c in zip(patches, texts, colors):
+        if horizontal:
+            pos, start, length = p.get_y() + p.get_height() / 2, p.get_x(), p.get_width()
+            text_px = len(text) * s['value_sz'] * 0.62 * 100 / 72
+        else:
+            pos, start, length = p.get_x() + p.get_width() / 2, p.get_y(), p.get_height()
+            text_px = s['value_sz'] * 1.2 * 100 / 72
+        if not np.isfinite(length): continue
+        end, sign = start + length, 1 if length >= 0 else -1
+        pad = per_px * 10
+        inside = s.get('value_pos') == "Inside" and abs(length) >= text_px * per_px + 2 * pad
+        v = end - sign * pad if inside else end + sign * span * 0.02
+        out = sign if not inside else -sign  # Which way the text runs from its anchor
+        kw = dict(zorder=5, **_label_kw(s, contrast_text(c) if inside else txt_col))
+        if horizontal:
+            ax.text(v, pos, text, ha='left' if out > 0 else 'right', va='center', **kw)
+        else:
+            ax.text(pos, v, text, ha='center', va='bottom' if out > 0 else 'top', **kw)
+
+
 def _end_label(ax, pos, v, text, s, txt_col, horizontal, pad):
     """A value label just past the end of a bar (above/below it, or right/left of it when horizontal)."""
     kw = dict(zorder=5, **_label_kw(s, txt_col))
@@ -255,18 +311,20 @@ def render_basic(df, s, txt_col):
     horizontal = s['chart_type'] == "Bar" and s['bar_orient'] == "Horizontal"
     if s['chart_type'] == "Bar":
         width_val = max(0.1, 0.8 - s['bar_gap'])  # Hard floor applied
-        draw = ax.barh if horizontal else ax.bar
-        size = "height" if horizontal else "width"
+        c2 = [s['last_c2']] * len(v2)
         if v2:
-            bars = [draw([i - width_val/4 for i in x], v1, **{size: width_val/2}, color=c1, zorder=2),
-                    draw([i + width_val/4 for i in x], v2, **{size: width_val/2}, color=s['last_c2'], zorder=2)]
+            bars = [(_bar(ax, horizontal, [i - width_val/4 for i in x], v1, c1, width_val/2), c1),
+                    (_bar(ax, horizontal, [i + width_val/4 for i in x], v2, c2, width_val/2), c2)]
         else:
-            bars = [draw(x, v1, **{size: width_val}, color=c1, zorder=2)]
+            bars = [(_bar(ax, horizontal, x, v1, c1, width_val), c1)]
         if s['show_values']:
-            for r in bars: ax.bar_label(r, labels=[format_number(v, s) for v in r.datavalues], padding=5, **label_kw)
+            for r, colors in bars:
+                _bar_labels(ax, r.patches, [format_number(v, s) for v in r.datavalues], colors, s, txt_col,
+                            horizontal, y_hi - y_lo)
     else:
         m_sym = MARKERS[s['marker_symbol']]
-        series = [(v1, s['last_c1'], c1)] + ([(v2, s['last_c2'], [s['last_c2']] * len(v2))] if v2 else [])
+        series = [(v1, solid(s['last_c1']), [solid(c) for c in c1])] + (
+            [(v2, solid(s['last_c2']), [solid(s['last_c2'])] * len(v2))] if v2 else [])
         for vals, line_color, marker_colors in series:
             ax.plot(x, vals, color=line_color, linewidth=s['line_width'], zorder=2)
             ax.scatter(x, vals, color=marker_colors, s=s['marker_size']**2, marker=m_sym, zorder=3)
@@ -442,15 +500,15 @@ def render_year_ranking(df, s, txt_col):
     vals = d["Value"].tolist()
     is_hl = (d["Year"] == hl).tolist()
     colors = [s['yr_hl_color'] if h else s['yr_color'] for h in is_hl]
+    bars = None
     if s['yr_style'] == "Dots":
-        ax.scatter(*((vals, x) if horizontal else (x, vals)), color=colors, s=s['marker_size'] ** 2, zorder=3)
+        ax.scatter(*((vals, x) if horizontal else (x, vals)), color=[solid(c) for c in colors],
+                   s=s['marker_size'] ** 2, zorder=3)
     elif s['yr_style'] == "Line":
-        ax.plot(x, vals, color=s['yr_color'], linewidth=max(1, s['line_width'] * 0.5), zorder=2.5)
-        ax.scatter(x, vals, color=colors, s=s['marker_size'] ** 2, zorder=3)
+        ax.plot(x, vals, color=solid(s['yr_color']), linewidth=max(1, s['line_width'] * 0.5), zorder=2.5)
+        ax.scatter(x, vals, color=[solid(c) for c in colors], s=s['marker_size'] ** 2, zorder=3)
     else:
-        thick = 0.8 if by_year or len(d) > 40 else 0.7
-        (ax.barh(x, vals, height=thick, color=colors, zorder=2) if horizontal
-         else ax.bar(x, vals, width=thick, color=colors, zorder=2))
+        bars = _bar(ax, horizontal, x, vals, colors, 0.8 if by_year or len(d) > 40 else 0.7)
     y_lo, y_hi = y_limits(vals, _start_zero(s))
     label_kw = _label_kw(s, txt_col)
     if s['yr_avg_line'] and len(full):
@@ -475,10 +533,13 @@ def render_year_ranking(df, s, txt_col):
                     xytext=(-6, -10), textcoords="offset points", ha="right", va="top", zorder=6, **label_kw)
     label_all = len(d) <= MAX_YEAR_LABELS
     if s['show_values']:
-        pad = (y_hi - y_lo) * 0.02
-        for xi, v, h in zip(x, vals, is_hl):
-            if label_all or h:
-                _end_label(ax, xi, v, format_number(v, s), s, txt_col, horizontal, pad)
+        shown = [i for i, h in enumerate(is_hl) if label_all or h]
+        if bars is not None:
+            _bar_labels(ax, [bars.patches[i] for i in shown], [format_number(vals[i], s) for i in shown],
+                        [colors[i] for i in shown], s, txt_col, horizontal, y_hi - y_lo)
+        else:
+            for i in shown:
+                _end_label(ax, x[i], vals[i], format_number(vals[i], s), s, txt_col, horizontal, (y_hi - y_lo) * 0.02)
     if s['yr_callout'] and hl in d["Year"].tolist():
         i = is_hl.index(True)
         text = rank_text(full, s, hl)
@@ -537,17 +598,13 @@ def render_range_bars(df, s, txt_col):
     colors = [s['rg_hl_color'] if l == hl else s['rg_color'] for l in d["Label"]]
     full = d["End"].notna()
     if full.any():
-        if horizontal:
-            ax.barh(d.index[full], d.loc[full, "End"] - d.loc[full, "Start"], left=d.loc[full, "Start"], height=0.7,
-                    color=[c for c, f in zip(colors, full) if f], zorder=2)
-        else:
-            ax.bar(d.index[full], d.loc[full, "End"] - d.loc[full, "Start"], bottom=d.loc[full, "Start"], width=0.7,
-                   color=[c for c, f in zip(colors, full) if f], zorder=2)
+        _bar(ax, horizontal, d.index[full], d.loc[full, "End"] - d.loc[full, "Start"],
+             [c for c, f in zip(colors, full) if f], 0.7, base=d.loc[full, "Start"])
     open_rows = ~full  # No end yet (e.g. this year's fall freeze hasn't happened): mark the start only
     if open_rows.any():
         pts = (d.loc[open_rows, "Start"], d.index[open_rows])
         ax.scatter(*(pts if horizontal else pts[::-1]), marker="|" if horizontal else "_", s=(s['marker_size'] * 2) ** 2,
-                   linewidths=4, color=[c for c, o in zip(colors, open_rows) if o], zorder=3)
+                   linewidths=4, color=[solid(c) for c, o in zip(colors, open_rows) if o], zorder=3)
     values = start + [e for e in end if pd.notna(e)]
     lo, hi = (min(values), max(values)) if values else (0.0, 10.0)
     span = (hi - lo) or 10.0

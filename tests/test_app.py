@@ -357,7 +357,7 @@ def test_only_palette_colors_are_offered(chart):
     assert problems(at) == []
     assert {p.key for p in at.color_picker} <= BAND_PICKERS  # Shaded bands keep their pickers for now
     assert len(chips(at, "text_choice")) == 2 and len(chips(at, "grid_color")) == 3
-    assert len(chips(at, "last_c1")) == (len(PALETTE) if chart in dio.BASIC_TYPES else 0)
+    assert len(chips(at, "last_c1")) == {"Bar": len(PALETTE) + 3, "Line": len(PALETTE)}.get(chart, 0)  # Gradients for bars
     targets = {b.key[5:].rsplit("_", 1)[0] for b in at.button if b.key and b.key.startswith("chip_")}
     for t in targets - {"text_choice"}:  # Every default is one of the colors offered for it
         assert any(at.session_state[t] in b.help for b in chips(at, t)), t
@@ -370,3 +370,20 @@ def test_clicking_a_chiclet_sets_the_color():
     assert "(selected)" in chips(at, "last_c1")[list(PALETTE).index("Coral")].help
     chips(at, "text_choice")[1].click().run()
     assert at.session_state.text_choice == "WI Navy" and problems(at) == []
+
+
+def test_gradients_are_offered_for_bars_only():
+    at = new()
+    assert len(chips(at, "last_c1")) == len(PALETTE) + 3
+    chips(at, "last_c1")[len(PALETTE)].click().run()  # Navy Gradient
+    assert at.session_state.last_c1 == "#045EA8-#022E67" and problems(at) == []
+    widget(at, "radio", "Chart Type").set_value("Line").run()
+    assert len(chips(at, "last_c1")) == len(PALETTE) and problems(at) == []  # The line uses WI Navy
+
+
+def test_label_position_inside():
+    at = new(show_values=True)
+    widget(at, "radio", "Label position").set_value("Inside").run()
+    assert at.session_state.value_pos == "Inside" and problems(at) == []
+    widget(at, "radio", "Chart Type").set_value("Line").run()
+    assert not [r for r in at.radio if r.label == "Label position"]
