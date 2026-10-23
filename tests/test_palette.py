@@ -45,3 +45,9 @@ def test_gradients():
 def test_gradients_never_snap_targets():
     from palette import BAR_PALETTE
     assert nearest_color("#045EA8", BAR_PALETTE)[0] == "Blue"
+
+
+def test_white_bars_from_older_projects_snap_to_gray():
+    from palette import CHART_PALETTE
+    settings = {'last_c1': "#FFFFFF"}
+    assert snap_settings(settings, {'last_c1': CHART_PALETTE}) == ["#FFFFFF → Gray"] and settings['last_c1'] == "#A3BCC6"

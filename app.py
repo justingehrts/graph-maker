@@ -9,7 +9,7 @@ from datetime import date, datetime, timedelta
 import charts
 import data_io as dio
 import iem
-from palette import BAR_PALETTE, GRADIENTS, PALETTE, TEXT_COLORS, GRID_PALETTE, snap_settings
+from palette import BAR_PALETTE, CHART_PALETTE, GRADIENTS, TEXT_COLORS, GRID_PALETTE, snap_settings
 
 st.set_page_config(page_title="Max Graph Maker", page_icon="📊", layout="wide")
 
@@ -28,7 +28,7 @@ state_defaults = {
     'num_decimals': "Auto", 'num_prefix': "", 'num_suffix': "", 'num_thousands': False, 'axis_units': False,
     'grid_show': True, 'grid_color': '#022E67', 'grid_alpha': 0.6, 'grid_width': 0.8, 'grid_style': "Solid",
     'date_labels': "Auto",
-    # Bar and line colors come from the Weather Impact 2.0 palette (PALETTE); shaded bands keep IEM's colors for now
+    # Bar and line colors come from the Weather Impact 2.0 palette (CHART_PALETTE); shaded bands keep IEM's colors for now
     # Running Total vs Normal (IEM #172)
     'rt_input': "Running totals", 'rt_obs_color': '#59C8FF', 'rt_norm_color': '#022E67',
     'rt_show_envelope': True, 'rt_env_color': '#D2B48C', 'rt_env_alpha': 1.0,
@@ -95,7 +95,7 @@ if 'table_kinds' not in st.session_state:
 LINE_COLOR_KEYS = ['last_c1', 'last_c2', 'highlight_color', 'rt_obs_color', 'rt_norm_color', 'rt_high_color', 'rt_low_color', 'rb_bar_color', 'rb_high_color', 'rb_low_color', 'rb_rec_high_line', 'rb_rec_low_line', 'rb_mark_color', 'yr_color', 'yr_hl_color', 'yr_avg_color', 'yr_trend_color', 'rg_color', 'rg_hl_color', 'rg_avg_color']
 # Which colors each restricted setting may use; other color settings (shaded bands) are free for now
 BAR_COLOR_KEYS = ['last_c1', 'last_c2', 'highlight_color', 'yr_color', 'yr_hl_color', 'rg_color', 'rg_hl_color']  # Can be gradients
-PALETTE_SETS = {**{k: BAR_PALETTE if k in BAR_COLOR_KEYS else PALETTE for k in LINE_COLOR_KEYS}, 'grid_color': GRID_PALETTE}
+PALETTE_SETS = {**{k: BAR_PALETTE if k in BAR_COLOR_KEYS else CHART_PALETTE for k in LINE_COLOR_KEYS}, 'grid_color': GRID_PALETTE}
 MARKER_SYMBOLS = list(charts.MARKERS)
 GRID_STYLES = charts.GRID_STYLES
 CHOICES = {'chart_type': dio.CHART_TYPES, 'marker_symbol': MARKER_SYMBOLS,
@@ -634,7 +634,7 @@ def horizontal_chart():
             or (ss.chart_type == "Year Ranking" and ss.yr_orient == "Horizontal" and ss.yr_style != "Line")
             or (ss.chart_type == "Range Bars" and ss.rg_orient == "Horizontal"))
 
-def palette_chiclets(label, target, options=PALETTE):
+def palette_chiclets(label, target, options=CHART_PALETTE):
     """Choose a color by clicking one of a row of small color squares (named on hover; a ring marks the selection).
 
     Stores the hex in `target`. Gradients
@@ -755,7 +755,7 @@ with st.sidebar:
                 if st.session_state.yr_order == "Sorted":
                     st.number_input("Show top N years (0 = all)", *RANGES['yr_top_n'], key='yr_top_n',
                                     help="The highlighted year is always shown.")
-                yr_options = BAR_PALETTE if st.session_state.yr_style == "Bars" else PALETTE
+                yr_options = BAR_PALETTE if st.session_state.yr_style == "Bars" else CHART_PALETTE
                 palette_chiclets("Year color", 'yr_color', yr_options)
                 palette_chiclets("Highlight color", 'yr_hl_color', yr_options)
                 st.checkbox("Average line", key='yr_avg_line')
@@ -789,7 +789,7 @@ with st.sidebar:
         st.caption("Weather Impact 2.0 palette only. Text, axes, data labels and call-outs are WI Navy for Max's "
                    "white background.")
         if not is_preset:
-            bar_options = BAR_PALETTE if ct == "Bar" else PALETTE  # Gradients are for bars only
+            bar_options = BAR_PALETTE if ct == "Bar" else CHART_PALETTE  # Gradients are for bars only
             palette_chiclets("Series 1", 'last_c1', bar_options)
             if st.session_state.show_v2:
                 palette_chiclets("Series 2", 'last_c2', bar_options)

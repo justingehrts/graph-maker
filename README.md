@@ -17,7 +17,7 @@ A Streamlit app for building chart graphics for on-air weather segments, exporte
 - Control over size, fonts, colors, gridlines, axis interval and label rotation
 - Colors follow the Weather Impact 2.0 palette (`palette.py`), chosen by clicking color chiclets:
   - **Text and axes** (including data labels and call-outs): always WI Navy, for Max's white backgrounds. Vertical charts put their X axis labels in white on a WI Navy strip (can be turned off under Axes)
-  - **Bars, lines and markers:** White, WI Navy, Highlight Blue, Breaking Red (for Weather Impact Alert states), Blue, Yellow, Green, Coral or Gray
+  - **Bars, lines and markers:** WI Navy, Highlight Blue, Breaking Red (for Weather Impact Alert states), Blue, Yellow, Green, Coral or Gray (no White, which would vanish on Max's white background)
   - **Bar gradients:** Navy, Highlight Blue and Red, for Bar charts, Year Ranking and Range Bars; the stronger color is at the bar's end
   - **Gridlines:** White, WI Navy or Gray
   - **Shaded bands** (record and normal ranges, above/below-normal fills) keep their own color pickers for now

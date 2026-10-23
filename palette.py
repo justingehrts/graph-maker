@@ -8,7 +8,8 @@ GRID_PALETTE = {n: PALETTE[n] for n in ("White", "WI Navy", "Gray")}
 # Bar gradients, stored as "#END-#BASE": the first color is at the bar's value end, the second at its base
 GRADIENTS = {"Navy Gradient": "#045EA8-#022E67", "Highlight Blue Gradient": "#59C8FF-#99DDFF",
              "Red Gradient": "#D71B32-#8D181F"}
-BAR_PALETTE = {**PALETTE, **GRADIENTS}
+CHART_PALETTE = {n: h for n, h in PALETTE.items() if n != "White"}  # Bars and lines: White vanishes on Max's white
+BAR_PALETTE = {**CHART_PALETTE, **GRADIENTS}
 # The palette color that stands in for a gradient where a solid color is needed (lines, dots)
 _GRADIENT_SOLID = {"#045EA8-#022E67": PALETTE["WI Navy"], "#59C8FF-#99DDFF": PALETTE["Highlight Blue"],
                    "#D71B32-#8D181F": PALETTE["Breaking Red"]}

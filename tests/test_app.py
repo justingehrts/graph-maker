@@ -9,7 +9,7 @@ from streamlit.testing.v1 import AppTest
 
 import data_io as dio
 import iem
-from palette import PALETTE
+from palette import CHART_PALETTE as PALETTE  # The colors bars and lines may use
 
 APP = str(Path(__file__).parent.parent / "app.py")
 FIX = Path(__file__).parent / "fixtures"
@@ -392,3 +392,9 @@ def test_label_strip_checkbox_for_vertical_charts_only():
     assert widget(at, "checkbox", "Navy strip behind X axis labels").value is True
     widget(at, "radio", "Bar direction").set_value("Horizontal").run()
     assert not [c for c in at.checkbox if c.label == "Navy strip behind X axis labels"] and problems(at) == []
+
+
+def test_white_is_not_a_bar_or_line_color():
+    at = new()
+    assert not [b for b in at.button if b.key and b.key.startswith("chip_last_c1_") and "#FFFFFF" in b.help]
+    assert [b for b in chips(at, "grid_color") if "#FFFFFF" in b.help]  # Gridlines keep White
