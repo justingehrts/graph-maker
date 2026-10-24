@@ -419,3 +419,15 @@ def test_white_is_not_a_bar_or_line_color():
     at = new()
     assert not [b for b in at.button if b.key and b.key.startswith("chip_last_c1_") and "#FFFFFF" in b.help]
     assert [b for b in chips(at, "grid_color") if "#FFFFFF" in b.help]  # Gridlines keep White
+
+
+def test_autoplot_98_days_as_labels(monkeypatch):
+    table = pd.DataFrame({"sday": iem.sday_labels(pd.Series(["0901", "0902", "0903"])), "hit": [21, 20, 15],
+                          "total": [134, 134, 134], "freq": [15.7, 14.9, 11.2]})
+    monkeypatch.setattr(iem, "autoplot_meta", lambda n: {"title": "Day of Month Frequency", "data": True})
+    monkeypatch.setattr(iem, "fetch_autoplot_csv", lambda url: table)
+    at = new()
+    at.text_input(key="ap_url").input("https://mesonet.agron.iastate.edu/plotting/auto/?q=98").run()
+    widget(at, "button", "Use this autoplot data").click().run()
+    assert problems(at) == []
+    assert at.session_state.datasets["Basic"]["Label"].tolist() == ["1", "2", "3"]

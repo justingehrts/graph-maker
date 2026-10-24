@@ -229,3 +229,22 @@ def test_a_low_of_exactly_32_is_a_freeze():
     out, _ = iem.freeze_seasons(daily, 32)
     import data_io as dio
     assert [dio.day_of_year_text(out["Start"].iloc[0]), dio.day_of_year_text(out["End"].iloc[0])] == ["Apr 20", "Oct 15"]
+
+
+SDAY_98 = "sday,hit,total,freq\n0901,21,134,15.67\n0902,20,134,14.93\n0930,3,134,2.24\n"
+
+
+def test_autoplot_sday_is_the_day_of_the_month(monkeypatch):
+    """Autoplot #98 lists one month's days as MMDD; they become 1, 2 … 30, not 901, 902 … 930."""
+    monkeypatch.setattr(iem, "_get", lambda url: type("R", (), {"text": SDAY_98})())
+    df = iem.fetch_autoplot_csv("https://mesonet.agron.iastate.edu/plotting/auto/plot/98/.csv")
+    assert df["sday"].tolist() == ["1", "2", "30"] and df["hit"].tolist() == [21, 20, 3]
+
+
+@pytest.mark.parametrize("raw, labels", [
+    (["0831", "0901"], ["Aug 31", "Sep 1"]),  # Across months: month and day
+    (["0228", "0229", "0301"], ["Feb 28", "Feb 29", "Mar 1"]),
+    (["0101", "x"], ["1", "x"]),  # Not a calendar day: left as it is
+])
+def test_sday_labels(raw, labels):
+    assert iem.sday_labels(pd.Series(raw)).tolist() == labels
