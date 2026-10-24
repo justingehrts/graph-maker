@@ -6,7 +6,7 @@ A Streamlit app for building chart graphics for on-air weather segments, exporte
 
 - Enter data in the table, paste cells straight from Excel/Google Sheets, or import a CSV/Excel file (first column = labels, next 1–2 columns = numbers)
 - Bar or line charts with one or two series, a highlighted point, and optional data labels, which can sit past the end of each bar or inside it (in White or WI Navy, whichever reads better on the bar)
-- ★ Climate presets (pick them in the Chart Type row at the top) that can pull a station's full daily history from the Iowa Environmental Mesonet and are styled after IEM's own autoplots:
+- ★ Climate presets (pick them in the Chart Type row at the top) that can pull a station's full daily history from ACIS (the official NWS data behind xmACIS and NOWData) and are styled after IEM's autoplots:
   - **Running Total vs Normal** (like #172): season-to-date rain or snow against normal, with the range of all years and the highest/lowest years
   - **Record & Normal Band** (like #113): daily highs and lows over warm/cool record bands and the normal range, for a month or a full year, with new records marked
   - **Year Ranking** (like #107 / #189): every year on record, by year or sorted, with one year highlighted and ranked (e.g. "5th wettest of 133 years"), an average line and an optional trend line
@@ -28,14 +28,14 @@ A Streamlit app for building chart graphics for on-air weather segments, exporte
 
 ## Data sources
 
-**Iowa Environmental Mesonet (IEM)**, Iowa State University: [mesonet.agron.iastate.edu](https://mesonet.agron.iastate.edu/).
+**ACIS** (Applied Climate Information System, [data.rcc-acis.org](https://data.rcc-acis.org/)) for the presets: the official NWS station data behind xmACIS, NOWData and the NWS Climate Almanac.
 
-- **Presets:** for any state's climate stations, the app downloads the station's full daily record in a single request. It then works out running totals, normals, daily records and yearly rankings itself. "Area" stations are the long-term threaded records for a city.
+- **Presets:** for any state, the app lists the threaded "Area" stations (a city's long-term record, e.g. Columbus Area since 1878) first, then stations still reporting with at least 30 years of data. It downloads the station's full daily record in one request and works out running totals, normals, daily records and yearly rankings itself.
 - **Normals:** two choices.
-  - **NCEI 1991–2020** (the default) uses NCEI's official 1991–2020 daily normals, the same ones the NWS daily climate report uses. IEM serves them through autoplots #172 (rain, snow) and #99 (highs, lows).
+  - **NCEI 1991–2020** (the default) uses NCEI's official 1991–2020 daily normals from ACIS, the same ones the NWS climate reports use.
   - **Full record** uses averages over the station's whole history, as IEM's #113 does.
-  - If the official normals can't be had, nothing is drawn with unofficial numbers. The app explains why and offers IEM's averages of the station's own 1991–2020 data instead, labeled as "not official NCEI normals".
-- **Records:** IEM's records can also differ slightly from NWS official records.
+  - If the official normals can't be had, nothing is drawn with unofficial numbers. The app explains why and offers the station's own 1991–2020 averages instead, labeled as "not official NCEI normals".
+- **If ACIS is down:** the app offers the **Iowa Environmental Mesonet (IEM)**, Iowa State University ([mesonet.agron.iastate.edu](https://mesonet.agron.iastate.edu/)), which has the same station records but can differ slightly from the official numbers. Charts made from it say "IEM (unofficial)" in their source note.
 - **Official numbers:** when you need them, paste or import data from xmACIS, NOWData or another source instead. The table accepts `T` (trace) and `M` (missing), and drops summary rows like "Sum" and "Mean".
 - **Dates as values:** a column of dates, such as an xmACIS "last date" per year (`16-Oct`, `Oct 16`, `10/16` or `2025-10-16`), is read as dates. The chart then shows them as "Oct 16", ranks them as latest or earliest, and labels any trend line in days per decade.
 - **Autoplot import:** in "Import from an IEM autoplot", paste the address of a plot made at [mesonet.agron.iastate.edu/plotting/auto](https://mesonet.agron.iastate.edu/plotting/auto/). Then choose which of its columns go into the chart. Not every autoplot offers its data for download.

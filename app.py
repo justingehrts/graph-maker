@@ -6,6 +6,7 @@ import re
 from calendar import month_name, monthrange
 from datetime import date, datetime, timedelta
 
+import acis
 import charts
 import data_io as dio
 import iem
@@ -52,7 +53,7 @@ state_defaults = {
     'bar_orient': "Vertical",
 }
 
-# Station-data (IEM) panel choices; saved with projects so the data can be fetched again
+# Station-data panel choices; saved with projects so the data can be fetched again
 TODAY = date.today()
 RT_STARTS = {"Jan 1": (1, 1), "Jul 1": (7, 1), "Oct 1": (10, 1)}
 SEASONS = {"Winter (Dec–Feb)": ((12, 1), (2, 28)), "Spring (Mar–May)": ((3, 1), (5, 31)),
@@ -61,10 +62,12 @@ RB_MODES = ["Full year", "Month", "Date range"]
 YR_PERIODS = ["Year to date", "Full year", "Month", "Season", "Custom dates"]
 # "NCEI 1991–2020" always means NCEI's official normals (what the NWS climate report uses); never an approximation
 NORMAL_PERIODS = {"NCEI 1991–2020": "ncei", "Full record": None}
-IEM_FALLBACK_NOTE = "IEM 1991–2020 station averages (not official NCEI normals)"
+STATION_AVG_NOTE = "1991–2020 station averages (not official NCEI normals)"
+SOURCES = {"ACIS": "ACIS, the official NWS source", "IEM": "Iowa Environmental Mesonet (unofficial)"}
 MONTHS = list(month_name)[1:]
 iem_defaults = {
-    'iem_state': "OH", 'iem_station': "OHTCMH",  # Columbus Area, the home station
+    'data_source': "ACIS",  # ACIS: official NWS data (as xmACIS / NOWData); IEM is the fallback
+    'iem_state': "OH", 'iem_station': "CMHthr",  # Columbus Area, the home station
     'normal_period': "NCEI 1991–2020", 'normals_fallback': False,
     'rt_var': "Rain", 'rt_start': "Jan 1", 'rt_year': TODAY.year, 'rt_to_latest': True, 'rt_end': TODAY,
     'rt_extend': False,
@@ -145,17 +148,27 @@ def active_key():
     return dio.schema_key(st.session_state.chart_type)
 
 # --- 2. CACHED DATA ACCESS ---
-@st.cache_data(ttl=24 * 3600, show_spinner="Loading station list from IEM…")
-def load_stations(state):
-    return iem.fetch_stations(state)
+@st.cache_data(ttl=24 * 3600, show_spinner="Loading the station list…")
+def load_stations(state, source="ACIS"):
+    return acis.fetch_stations(state) if source == "ACIS" else iem.fetch_stations(state)
 
-@st.cache_data(ttl=6 * 3600, show_spinner="Downloading the station's daily history from IEM…")
-def load_daily(station, state):
-    return iem.fetch_daily(station, state)
+@st.cache_data(ttl=6 * 3600, show_spinner="Downloading the station's daily history…")
+def load_daily(station, state, source="ACIS"):
+    return acis.fetch_daily(station) if source == "ACIS" else iem.fetch_daily(station, state)
 
-@st.cache_data(ttl=24 * 3600, show_spinner="Getting the official NCEI 1991–2020 normals from IEM…")
-def load_ncei(station, state, ncei_id):
-    return iem.fetch_ncei_normals(station, state, ncei_id)
+@st.cache_data(ttl=24 * 3600, show_spinner="Getting the official NCEI 1991–2020 normals…")
+def load_ncei(station, state, ncei_id, source="ACIS"):
+    return acis.fetch_normals(station) if source == "ACIS" else iem.fetch_ncei_normals(station, state, ncei_id)
+
+def switch_source(source):
+    """Change the station data source, keeping a threaded city record (ACIS CMHthr is IEM's OHTCMH)."""
+    ss = st.session_state
+    sid = ss.iem_station or ""
+    if source == "IEM" and sid.endswith("thr"):
+        ss.iem_station = f"{ss.iem_state}T{sid[:-3].upper()}"
+    elif source == "ACIS":
+        ss.iem_station = acis.from_iem_id(sid) or sid
+    ss.data_source = source
 
 @st.cache_data(ttl=6 * 3600, show_spinner="Getting the autoplot data from IEM…")
 def load_autoplot(csv_url):
@@ -298,8 +311,17 @@ def handle_json():
         elif k in ('iem_state', 'normal_period', 'rt_var', 'rt_start', 'rb_mode', 'rb_month', 'yr_var', 'yr_period',
                  'yr_month', 'yr_season') and isinstance(v, str) and v in iem_choices(k):
             st.session_state[k] = v
-        elif k == 'iem_station' and isinstance(v, str) and re.fullmatch(r"[A-Z0-9]{3,10}", v):
+        elif k == 'data_source' and v in SOURCES:
             st.session_state[k] = v
+        elif k == 'iem_station' and isinstance(v, str) and re.fullmatch(r"[A-Za-z0-9]{3,12}", v):
+            st.session_state[k] = v
+    if 'data_source' not in (p.get('iem_query') or {}) and (p.get('iem_query') or {}).get('iem_station'):
+        # Earlier projects saved IEM station ids; ACIS has the same threaded city records under its own ids
+        old = st.session_state.iem_station
+        st.session_state.data_source = "ACIS"
+        st.session_state.iem_station = acis.from_iem_id(old) or iem_defaults['iem_station']
+        if not acis.from_iem_id(old):
+            st.toast(f"Station data now comes from ACIS; pick the station again (the project's was IEM's {old}).")
     kinds = p.get('table_kinds') if isinstance(p.get('table_kinds'), dict) else {}
     st.session_state.table_kinds = {k: v for k, v in kinds.items() if k in dio.SCHEMAS and v in CHOICES['value_kind']}
     st.session_state.table_kinds.setdefault(active_key(), st.session_state.value_kind)
@@ -338,30 +360,32 @@ def unit_defaults(kind):
     fmt = {"precip": ('"', "2"), "snow": ('"', "1"), "temp": ("°", "0")}[kind]
     st.session_state.num_suffix, st.session_state.num_decimals = fmt
 
-def build_from_iem(daily, station_label, ncei_id="", use_iem_normals=False):
+def build_from_iem(daily, station_label, ncei_id="", use_station_avgs=False):
     """Compute the active preset's table from the station's daily record.
 
     With "NCEI 1991–2020" chosen, the official NCEI normals are required. If they can't be had, nothing is built
-    and the problem is shown with an offer to use IEM's 1991–2020 station averages (`use_iem_normals`) instead.
+    and the problem is shown with an offer to use the station's own 1991–2020 averages (`use_station_avgs`).
     """
     ss = st.session_state
     ct = ss.chart_type
     ss.normals_problem = None
     ncei, normal_years, notes_extra = None, None, []
     normals = "full-record averages"
+    src = ss.data_source if ss.data_source == "ACIS" else "IEM (unofficial)"
     if ct != "Year Ranking" and NORMAL_PERIODS[ss.normal_period] == "ncei":
-        if use_iem_normals:
-            normal_years, normals = (1991, 2020), IEM_FALLBACK_NOTE
-            notes_extra = ["using IEM station averages, not official NCEI normals"]
+        if use_station_avgs:
+            normal_years, normals = (1991, 2020), STATION_AVG_NOTE
+            notes_extra = ["using station averages, not official NCEI normals"]
             ss.normals_fallback = True
         else:
             try:
-                ncei = load_ncei(ss.iem_station, ss.iem_state, ncei_id)
+                ncei = load_ncei(ss.iem_station, ss.iem_state, ncei_id, ss.data_source)
             except iem.NormalsUnavailable as e:
                 # Remember which request failed so the offer only shows for it
                 ss.normals_problem = (ss.iem_station, ct, str(e))
                 return
-            normals = f"NCEI 1991–2020 normals ({ncei.attrs.get('ncei_id', ncei_id)}, via IEM)"
+            normals = ("NCEI 1991–2020 normals (ACIS)" if ss.data_source == "ACIS"
+                       else f"NCEI 1991–2020 normals ({ncei.attrs.get('ncei_id', ncei_id)}, via IEM)")
             ss.normals_fallback = False
     span = f"{daily.index.min().year}–{daily.index.max().year}"
     try:
@@ -373,7 +397,7 @@ def build_from_iem(daily, station_label, ncei_id="", use_iem_normals=False):
             unit_defaults(var)
             ss.y_start_zero = True
             notes = [f"{info['missing_days']} missing days counted as 0"] if info['missing_days'] else []
-            note = f"IEM · {station_label} · {ss.rt_var.lower()} {info['season']} · {normals}"
+            note = f"{src} · {station_label} · {ss.rt_var.lower()} {info['season']} · {normals}"
             if info['highest']:
                 unit = ss.num_suffix
                 word = ("wettest", "driest") if var == "precip" else ("snowiest", "least snowy")
@@ -398,7 +422,7 @@ def build_from_iem(daily, station_label, ncei_id="", use_iem_normals=False):
             missing = int(df.loc[df["Date"] <= daily.index.max(), ["Actual High", "Actual Low"]].isna().any(axis=1).sum())
             notes = [f"{missing} days with missing temperatures"] if missing else []
             shown = "–".join(sorted({str(start.year), str(end.year)}))
-            note = f"IEM · {station_label} · records {span}, not counting {shown} · {normals}"
+            note = f"{src} · {station_label} · records {span}, not counting {shown} · {normals}"
         elif ct == "Range Bars":
             thr = float(ss.rg_threshold)
             # A low equal to the threshold counts (32° is a freeze), as the NWS defines it
@@ -410,7 +434,7 @@ def build_from_iem(daily, station_label, ncei_id="", use_iem_normals=False):
                      f"{ss.rg_max_missing} missing lows"] if skipped else []
             if len(df) and pd.isna(df["End"].iloc[-1]):
                 notes.append(f"{df['Label'].iloc[-1]} has no fall freeze yet")
-            note = f"IEM · {station_label} · growing season: last spring / first fall low ≤ {thr:g}° · {span}"
+            note = f"{src} · {station_label} · growing season: last spring / first fall low ≤ {thr:g}° · {span}"
         else:
             start_md, end_md, label = ranking_window(daily)
             df, info = iem.yearly_values(daily, ss.yr_var, start_md, end_md, int(ss.yr_max_missing))
@@ -425,7 +449,7 @@ def build_from_iem(daily, station_label, ncei_id="", use_iem_normals=False):
             skipped = info['skipped_years']
             notes = [f"left out {len(skipped)} year{'s' if len(skipped) != 1 else ''} with more than "
                      f"{ss.yr_max_missing} missing days"] if skipped else []
-            note = f"IEM · {station_label} · {ss.yr_var.lower()}, {label} · {span}"
+            note = f"{src} · {station_label} · {ss.yr_var.lower()}, {label} · {span}"
             if skipped and (df.empty or skipped[-1] > df["Year"].iloc[-1]):
                 # The most recent period is the one people usually want; never drop it silently
                 note += (f" · ⚠️ {skipped[-1]} is left out: more than {ss.yr_max_missing} days of missing data "
@@ -475,32 +499,42 @@ key = active_key()
 is_preset = ct in dio.PRESET_TYPES
 # Chart type decides which table and options appear, so it sits above the data rather than in the styling sidebar
 st.radio("Chart Type", dio.CHART_TYPES, key='chart_type', format_func=chart_type_label, horizontal=True,
-         on_change=commit_table, help="★ Presets are climate charts that can pull station data from IEM.")
+         on_change=commit_table, help="★ Presets are climate charts that can pull official station data from ACIS.")
 st.caption(dio.DESCRIPTIONS[ct])
 st.subheader("Data Input")
 
 if is_preset:
-    with st.expander("🛰️ Station data from the Iowa Environmental Mesonet (IEM)", expanded=True):
+    source = st.session_state.data_source
+    with st.expander(f"🛰️ Station data from {SOURCES[source]}", expanded=True):
         cs, cn = st.columns([1, 3])
         cs.selectbox("State", iem.STATES, key='iem_state')
-        stations, daily, ncei_ids = None, None, {}
+        stations, daily, ncei_ids, failed = None, None, {}, None
         try:
-            stations = load_stations(st.session_state.iem_state)
+            stations = load_stations(st.session_state.iem_state, source)
         except iem.IEMError as e:
-            st.error(str(e))
+            failed = str(e)
         if stations is not None:
             ids = stations["id"].tolist()
             labels = dict(zip(stations["id"], stations["label"]))
-            ncei_ids = dict(zip(stations["id"], stations["ncei91"]))
+            if "ncei91" in stations: ncei_ids = dict(zip(stations["id"], stations["ncei91"]))
             if st.session_state.iem_station not in ids: st.session_state.iem_station = None
             cn.selectbox("Station", ids, key='iem_station', format_func=lambda i: labels.get(i, i),
                          placeholder="Choose a station (type to search)",
                          help="'Area' stations are the long-term threaded records for a city.")
         if st.session_state.iem_station:
             try:
-                daily = load_daily(st.session_state.iem_station, st.session_state.iem_state)
+                daily = load_daily(st.session_state.iem_station, st.session_state.iem_state, source)
             except iem.IEMError as e:
-                st.error(str(e))
+                failed = str(e)
+        if failed:
+            st.error(failed)
+        if source == "ACIS" and failed:
+            st.caption("The Iowa Environmental Mesonet has the same station records, but its numbers can differ "
+                       "slightly from the official NWS ones.")
+            st.button("Use IEM data instead", on_click=switch_source, args=("IEM",))
+        elif source == "IEM":
+            st.caption("⚠️ Using the Iowa Environmental Mesonet: numbers can differ slightly from the official NWS ones.")
+            st.button("Back to ACIS (official)", on_click=switch_source, args=("ACIS",))
         if daily is not None and not daily.empty:
             first, last = daily.index.min().date(), daily.index.max().date()
             station_label = f"{daily.attrs.get('station_name') or st.session_state.iem_station} ({st.session_state.iem_station})"
@@ -558,10 +592,10 @@ if is_preset:
             st.button("📥 Use this station data", type="primary", on_click=build_from_iem, args=(daily, station_label, ncei_id))
             problem = ss.get('normals_problem')
             if problem and problem[:2] == (ss.iem_station, ct) and NORMAL_PERIODS[ss.normal_period] == "ncei":
-                st.warning(f"{problem[2]} The chart wasn't changed. You can use IEM's averages of this station's own "
+                st.warning(f"{problem[2]} The chart wasn't changed. You can use averages of this station's own "
                            "1991–2020 data instead (close to, but not, the official NCEI normals), try again, "
                            "or choose Full record.")
-                st.button("Use IEM 1991–2020 averages instead", on_click=build_from_iem,
+                st.button("Use 1991–2020 station averages instead", on_click=build_from_iem,
                           args=(daily, station_label, ncei_id, True))
 
 c1, c2 = st.columns(2)

@@ -7,6 +7,7 @@ import pytest
 import streamlit as st
 from streamlit.testing.v1 import AppTest
 
+import acis
 import data_io as dio
 import iem
 from palette import CHART_PALETTE as PALETTE  # The colors bars and lines may use
@@ -25,6 +26,10 @@ def fake_iem(monkeypatch):
     monkeypatch.setattr(iem, "fetch_stations", lambda state: STATIONS)
     monkeypatch.setattr(iem, "fetch_daily", lambda station, state: DAILY.loc[:"2025-10-10"])
     monkeypatch.setattr(iem, "fetch_ncei_normals", lambda station, state, ncei_id: NCEI)
+    # ACIS is the default source; the same stand-in data, so every preset test runs offline
+    monkeypatch.setattr(acis, "fetch_stations", lambda state: STATIONS.drop(columns="ncei91"))
+    monkeypatch.setattr(acis, "fetch_daily", lambda sid: DAILY.loc[:"2025-10-10"])
+    monkeypatch.setattr(acis, "fetch_normals", lambda sid: NCEI)
 
 
 def new(**state):
@@ -119,7 +124,7 @@ def test_running_total_from_iem():
     at = use_station("Running Total vs Normal", rt_year=2025)
     df = at.session_state.datasets["Running Total vs Normal"]
     assert df["Date"].iloc[0] == pd.Timestamp("2025-01-01") and df["Date"].iloc[-1] == pd.Timestamp("2025-10-10")
-    assert at.session_state.source_notes["Running Total vs Normal"].startswith("IEM · Ames Area (IATAME)")
+    assert at.session_state.source_notes["Running Total vs Normal"].startswith("ACIS · Ames Area (IATAME)")
     assert at.session_state.num_suffix == '"'
     assert any("Through Oct 10" in m.value for m in at.markdown)
     assert "wettest:" in at.session_state.source_notes["Running Total vs Normal"]
@@ -168,7 +173,8 @@ def test_running_total_uses_official_ncei_normals():
     df = at.session_state.datasets["Running Total vs Normal"]
     days = pd.date_range("2025-01-01", "2025-10-10").strftime("%m%d")
     assert df["Normal"].iloc[-1] == round(NCEI["precip"].reindex(days).sum(), 2)
-    assert "NCEI 1991–2020 normals (USW00094989, via IEM)" in at.session_state.source_notes["Running Total vs Normal"]
+    assert "NCEI 1991–2020 normals (ACIS)" in at.session_state.source_notes["Running Total vs Normal"]
+    assert at.session_state.source_notes["Running Total vs Normal"].startswith("ACIS · ")
 
 
 def test_full_record_option():
@@ -176,26 +182,41 @@ def test_full_record_option():
     assert "full-record averages" in at.session_state.source_notes["Record & Normal Band"]
 
 
-def test_missing_ncei_normals_offer_iem_fallback(monkeypatch):
-    def unavailable(station, state, ncei_id):
-        raise iem.NormalsUnavailable("Couldn't get the NCEI normals from IEM: timeout.")
-    monkeypatch.setattr(iem, "fetch_ncei_normals", unavailable)
+def test_missing_ncei_normals_offer_station_averages(monkeypatch):
+    def unavailable(sid):
+        raise iem.NormalsUnavailable("Couldn't get the NCEI normals from ACIS: timeout.")
+    monkeypatch.setattr(acis, "fetch_normals", unavailable)
     at = new(chart_type="Running Total vs Normal", iem_state="IA", iem_station="IATAME", rt_year=2025)
     before = at.session_state.datasets["Running Total vs Normal"].copy()
     widget(at, "button", "📥 Use this station data").click().run()
     assert problems(at) == [] and any("Couldn't get the NCEI normals" in w.value for w in at.warning)
     assert at.session_state.datasets["Running Total vs Normal"].equals(before)  # Nothing unofficial built
-    widget(at, "button", "Use IEM 1991–2020 averages instead").click().run()
+    widget(at, "button", "Use 1991–2020 station averages instead").click().run()
     note = at.session_state.source_notes["Running Total vs Normal"]
-    assert "IEM 1991–2020 station averages (not official NCEI normals)" in note
+    assert "1991–2020 station averages (not official NCEI normals)" in note
     assert at.session_state.normals_fallback is True and not at.warning
+
+
+def test_acis_outage_offers_iem(monkeypatch):
+    def down(*a):
+        raise acis.ACISError("Couldn't get data from ACIS, the NWS climate data service (ConnectionError).")
+    monkeypatch.setattr(acis, "fetch_stations", down)
+    monkeypatch.setattr(acis, "fetch_daily", down)
+    at = new(chart_type="Running Total vs Normal", iem_state="IA", iem_station="IATAME")
+    assert not at.exception and any("Couldn't get data from ACIS" in e.value for e in at.error)
+    widget(at, "button", "Use IEM data instead").click().run()
+    assert at.session_state.data_source == "IEM" and problems(at) == []
+    widget(at, "button", "📥 Use this station data").click().run()
+    assert at.session_state.source_notes["Running Total vs Normal"].startswith("IEM (unofficial) · ")
+    widget(at, "button", "Back to ACIS (official)").click().run()
+    assert at.session_state.data_source == "ACIS"
 
 
 def test_iem_outage_shows_friendly_error(monkeypatch):
     def down(state):
         raise iem.IEMError("Couldn't get data from the Iowa Environmental Mesonet (ConnectionError).")
     monkeypatch.setattr(iem, "fetch_stations", down)
-    at = new(chart_type="Running Total vs Normal")
+    at = new(chart_type="Running Total vs Normal", data_source="IEM")
     assert not at.exception and any("Couldn't get data" in e.value for e in at.error)
 
 
@@ -267,13 +288,13 @@ def test_autoplot_import(monkeypatch):
 
 
 def test_station_defaults_to_columbus(monkeypatch):
-    columbus = pd.DataFrame({"id": ["OHTCMH"], "name": ["Columbus Area"], "county": ["Franklin"], "begin": [1878],
-                             "ncei91": ["USW00014821"], "label": ["Columbus Area (OHTCMH) · Franklin Co. · since 1878"]})
+    columbus = pd.DataFrame({"id": ["CMHthr"], "name": ["Columbus Area"], "county": [""], "begin": [1878],
+                             "label": ["Columbus Area (CMHthr) · since 1878"]})
     asked = []
-    monkeypatch.setattr(iem, "fetch_stations", lambda state: asked.append(state) or columbus)
+    monkeypatch.setattr(acis, "fetch_stations", lambda state: asked.append(state) or columbus)
     at = new(chart_type="Running Total vs Normal")
-    assert at.session_state.iem_state == "OH" and at.session_state.iem_station == "OHTCMH" and asked == ["OH"]
-    assert at.selectbox(key="iem_station").value == "OHTCMH" and problems(at) == []
+    assert at.session_state.iem_state == "OH" and at.session_state.iem_station == "CMHthr" and asked == ["OH"]
+    assert at.selectbox(key="iem_station").value == "CMHthr" and problems(at) == []
 
 
 def test_date_tables_show_dates_not_day_numbers():
@@ -314,9 +335,9 @@ def test_x_axis_label_choices():
 
 
 def test_range_bars_from_columbus_station_data(monkeypatch):
-    columbus = pd.DataFrame({"id": ["OHTCMH"], "name": ["Columbus Area"], "county": ["Franklin"], "begin": [1878],
-                             "ncei91": ["USW00014821"], "label": ["Columbus Area (OHTCMH) · Franklin Co. · since 1878"]})
-    monkeypatch.setattr(iem, "fetch_stations", lambda state: columbus)
+    columbus = pd.DataFrame({"id": ["CMHthr"], "name": ["Columbus Area"], "county": [""], "begin": [1878],
+                             "label": ["Columbus Area (CMHthr) · since 1878"]})
+    monkeypatch.setattr(acis, "fetch_stations", lambda state: columbus)
     at = new(chart_type="Range Bars")  # Columbus Area is the default station
     widget(at, "button", "📥 Use this station data").click().run()
     assert problems(at) == []
