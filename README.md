@@ -36,7 +36,7 @@ A Streamlit app for building chart graphics for on-air weather segments, exporte
   - **Full record** uses averages over the station's whole history, as IEM's #113 does.
   - If the official normals can't be had, nothing is drawn with unofficial numbers. The app explains why and offers the station's own 1991–2020 averages instead, labeled as "not official NCEI normals".
 - **If ACIS is down:** the app offers the **Iowa Environmental Mesonet (IEM)**, Iowa State University ([mesonet.agron.iastate.edu](https://mesonet.agron.iastate.edu/)), which has the same station records but can differ slightly from the official numbers. Charts made from it say "IEM (unofficial)" in their source note.
-- **Official numbers:** when you need them, paste or import data from xmACIS, NOWData or another source instead. The table accepts `T` (trace) and `M` (missing), and drops summary rows like "Sum" and "Mean".
+- **Official numbers:** when you need them, paste or import data from xmACIS, NOWData or another source instead. The table accepts `T` (trace) and `M` (missing), and drops summary rows like "Sum" and "Mean". A Rank column (xmACIS's, whether it's numbers or dashes) is left out, since it only numbers the rows.
 - **Dates as values:** a column of dates, such as an xmACIS "last date" per year (`16-Oct`, `Oct 16`, `10/16` or `2025-10-16`), is read as dates. The chart then shows them as "Oct 16", ranks them as latest or earliest, and labels any trend line in days per decade.
 - **Autoplot import:** in "Import from an IEM autoplot", paste the address of a plot made at [mesonet.agron.iastate.edu/plotting/auto](https://mesonet.agron.iastate.edu/plotting/auto/). Then choose which of its columns go into the chart. Not every autoplot offers its data for download.
 

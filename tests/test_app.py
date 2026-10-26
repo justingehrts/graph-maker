@@ -431,3 +431,13 @@ def test_autoplot_98_days_as_labels(monkeypatch):
     widget(at, "button", "Use this autoplot data").click().run()
     assert problems(at) == []
     assert at.session_state.datasets["Basic"]["Label"].tolist() == ["1", "2", "3"]
+
+
+def test_pasting_an_xmacis_csv_with_a_rank_column():
+    at = new(chart_type="Year Ranking")
+    at.text_area(key="paste_text").input(
+        "Rank, Year, HighestMaxTemperature, MissingCount\n-, 1878, 94, 181\n-, 1879, 96, 0\n-, 1880, 97, 0").run()
+    widget(at, "button", "Use pasted data").click().run()
+    assert problems(at) == []
+    df = at.session_state.datasets["Year Ranking"]
+    assert df["Year"].tolist() == ["1878", "1879", "1880"] and df["Value"].tolist() == [94.0, 96.0, 97.0]
