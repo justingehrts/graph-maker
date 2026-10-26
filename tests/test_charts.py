@@ -121,3 +121,9 @@ def test_no_strip_when_off_or_horizontal(monkeypatch):
     assert not strips(drawn_axes(monkeypatch, "Bar", df, x_label_band=False))
     ax = drawn_axes(monkeypatch, "Bar", df, bar_orient="Horizontal")
     assert not strips(ax) and all(t.get_color() == "white" for t in ax.get_yticklabels())
+
+
+def test_fonts_load_from_the_fonts_folder():
+    assert charts._font_file("ProximaNova-Bold.ttf").endswith("fonts/ProximaNova-Bold.ttf")
+    assert charts._font_file("NoSuchFont.ttf") is None
+    assert charts.load_fonts()[2] is False  # Not the fallback

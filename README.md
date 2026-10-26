@@ -68,4 +68,4 @@ That configuration starts Streamlit with CORS and XSRF protection turned off, wh
 
 ## Fonts
 
-The app uses Proxima Nova (`ProximaNova-Regular.ttf`, `ProximaNova-Bold.ttf`) when the files are in the repo folder, and falls back to the default sans-serif font when they aren't. Proxima Nova is a commercial font, so make sure you're licensed to use and distribute it.
+The app uses Proxima Nova (`ProximaNova-Regular.ttf`, `ProximaNova-Bold.ttf`) when the files are in the `fonts` folder (or the top-level repo folder), and falls back to the default sans-serif font when they aren't. Proxima Nova is a commercial font, so make sure you're licensed to use and distribute it.

@@ -28,11 +28,16 @@ STRIP_COLOR, STRIP_TEXT = PALETTE["WI Navy"], PALETTE["White"]  # The X axis lab
 MAX_YEAR_LABELS = 25  # Year Ranking: label every year only up to this many bars
 
 
+def _font_file(name):
+    """Path to a font file in the fonts folder (or, for older checkouts, the top-level folder); None if missing."""
+    return next((p for p in (os.path.join(HERE, "fonts", name), os.path.join(HERE, name)) if os.path.isfile(p)), None)
+
+
 @lru_cache(maxsize=1)
 def load_fonts():
     """Return (regular, bold, using_fallback). FontProperties doesn't check the file, so check it here."""
-    reg, bold = os.path.join(HERE, "ProximaNova-Regular.ttf"), os.path.join(HERE, "ProximaNova-Bold.ttf")
-    if os.path.isfile(reg) and os.path.isfile(bold):
+    reg, bold = _font_file("ProximaNova-Regular.ttf"), _font_file("ProximaNova-Bold.ttf")
+    if reg and bold:
         return fm.FontProperties(fname=reg), fm.FontProperties(fname=bold), False
     return fm.FontProperties(family='sans-serif'), fm.FontProperties(family='sans-serif', weight='bold'), True
 
