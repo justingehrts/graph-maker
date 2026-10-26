@@ -28,23 +28,29 @@ STRIP_COLOR, STRIP_TEXT = PALETTE["WI Navy"], PALETTE["White"]  # The X axis lab
 MAX_YEAR_LABELS = 25  # Year Ranking: label every year only up to this many bars
 
 
+# The style guide's three Proxima Nova weights, by what the text is: Extrabold for key data (value labels, call-outs),
+# Bold for labels (X axis names), Semibold for supporting information (Y axis numbers)
+FONT_FILES = {"data": "proximanova-extrabold.ttf", "label": "proximanova-bold.ttf", "support": "proximanova-semibold.ttf"}
+FALLBACK_WEIGHTS = {"data": "bold", "label": "bold", "support": "normal"}
+
+
 def _font_file(name):
-    """Path to a font file in the fonts folder (or, for older checkouts, the top-level folder); None if missing."""
-    return next((p for p in (os.path.join(HERE, "fonts", name), os.path.join(HERE, name)) if os.path.isfile(p)), None)
+    """Path to a font file in the fonts folder; None if it's missing."""
+    path = os.path.join(HERE, "fonts", name)
+    return path if os.path.isfile(path) else None
 
 
 @lru_cache(maxsize=1)
 def load_fonts():
-    """Return (regular, bold, using_fallback). FontProperties doesn't check the file, so check it here."""
-    reg, bold = _font_file("ProximaNova-Regular.ttf"), _font_file("ProximaNova-Bold.ttf")
-    if reg and bold:
-        return fm.FontProperties(fname=reg), fm.FontProperties(fname=bold), False
-    return fm.FontProperties(family='sans-serif'), fm.FontProperties(family='sans-serif', weight='bold'), True
+    """Return ({role: FontProperties}, using_fallback). FontProperties doesn't check the file, so check it here."""
+    paths = {role: _font_file(name) for role, name in FONT_FILES.items()}
+    if all(paths.values()):
+        return {role: fm.FontProperties(fname=p) for role, p in paths.items()}, False
+    return {role: fm.FontProperties(family='sans-serif', weight=w) for role, w in FALLBACK_WEIGHTS.items()}, True
 
 
-def _font(bold):
-    reg, b, _ = load_fonts()
-    return b if bold else reg
+def _font(role):
+    return load_fonts()[0][role]
 
 
 def y_limits(values, start_zero):
@@ -102,7 +108,7 @@ def _new_figure(s):
 
 
 def _label_kw(s, txt_col):
-    return dict(color=txt_col, fontproperties=_font(s['value_bold']), fontsize=s['value_sz'])
+    return dict(color=txt_col, fontproperties=_font("data"), fontsize=s['value_sz'])
 
 
 def _style_y(ax, s, txt_col, y_lo, y_hi, axis="y"):
@@ -132,9 +138,9 @@ def _finish(fig, ax, s, txt_col, y_lo, y_hi, zero_line=True, horizontal=False):
     ax.tick_params(axis='y' if horizontal else 'x', colors=txt_col, width=3, length=8, zorder=4)
     values, categories = (ax.get_xticklabels(), ax.get_yticklabels()) if horizontal else (ax.get_yticklabels(), ax.get_xticklabels())
     for tick in values:
-        tick.set_fontproperties(_font(s['y_bold'])); tick.set_fontsize(s['y_sz']); tick.set_color(txt_col)
+        tick.set_fontproperties(_font('support')); tick.set_fontsize(s['y_sz']); tick.set_color(txt_col)
     for tick in categories:
-        tick.set_fontproperties(_font(s['x_bold'])); tick.set_fontsize(s['x_sz']); tick.set_color(txt_col)
+        tick.set_fontproperties(_font('label')); tick.set_fontsize(s['x_sz']); tick.set_color(txt_col)
         if not horizontal: tick.set_rotation(s['x_rot'])
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)

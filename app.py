@@ -20,8 +20,8 @@ state_defaults = {
     'last_c1': '#285DA3', 'last_c2': '#A3BCC6', 'show_v2': False,
     'chart_type': "Bar", 'width': 1920, 'height': 1080,
     'x_sz': 28, 'y_sz': 28, 'y_step': 10.0, 'y_auto': True,
-    'bar_gap': 0.22, 'y_start_zero': True, 'x_bold': True, 'y_bold': True,
-    'show_values': False, 'value_pos': "End", 'value_sz': 24, 'value_bold': True,
+    'bar_gap': 0.22, 'y_start_zero': True,
+    'show_values': False, 'value_pos': "End", 'value_sz': 24,
     'highlight_idx': "None", 'highlight_color': '#59C8FF',
     'line_width': 8, 'marker_size': 15, 'marker_symbol': 'Circle',
     'x_rot': 0, 'x_label_every': "Auto", 'x_label_band': True,
@@ -701,7 +701,7 @@ def palette_chiclets(label, target, options=CHART_PALETTE):
 # Widgets are bound to session state via `key`, so each change applies on the first try
 with st.sidebar:
     st.header("Graphic Config")
-    if charts.load_fonts()[2]: st.caption("⚠️ Proxima Nova font files not found; using the default sans-serif font.")
+    if charts.load_fonts()[1]: st.caption("⚠️ Proxima Nova font files not found; using the default sans-serif font.")
 
     with st.expander("📐 Canvas & Chart", expanded=True):
         cw, ch = st.columns(2)
@@ -850,7 +850,6 @@ with st.sidebar:
                          help="Inside labels are White or WI Navy, whichever reads better on the bar. A bar too short "
                               "for its label gets it past the end.")
         st.slider("Data Label Font Size", *RANGES['value_sz'], key='value_sz')
-        st.checkbox("Data Labels Bold", key='value_bold')
         st.radio("Values are", CHOICES['value_kind'], key='value_kind', horizontal=True,
                  format_func=lambda k: {"Number": "Numbers", "Date": "Dates"}[k],
                  on_change=change_value_kind,
@@ -873,7 +872,6 @@ with st.sidebar:
         if ct != "Record & Normal Band":
             st.checkbox("Force Y Axis to Start at 0", key='y_start_zero')
         st.slider("Y Axis Value Size", *RANGES['y_sz'], key='y_sz')
-        st.checkbox("Y Axis Values Bold", key='y_bold')
         if ct in dio.DATED_TYPES:
             st.selectbox("Date Labels", CHOICES['date_labels'], key='date_labels',
                          help="Auto uses month names for periods longer than about two months.")
@@ -883,7 +881,6 @@ with st.sidebar:
                               "(e.g. 1880, 1885, 1890); a highlighted bar always keeps its label. If labels "
                               "crowd, pick a wider spacing, a smaller X label size, or rotate them.")
         st.slider("X Axis Label Size", *RANGES['x_sz'], key='x_sz')
-        st.checkbox("X Axis Labels Bold", key='x_bold')
         st.slider("X Label Rotation (Degrees)", *RANGES['x_rot'], key='x_rot')
         if not horizontal_chart():
             st.checkbox("Navy strip behind X axis labels", key='x_label_band',

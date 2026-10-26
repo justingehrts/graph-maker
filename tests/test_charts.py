@@ -123,7 +123,33 @@ def test_no_strip_when_off_or_horizontal(monkeypatch):
     assert not strips(ax) and all(t.get_color() == "white" for t in ax.get_yticklabels())
 
 
-def test_fonts_load_from_the_fonts_folder():
-    assert charts._font_file("ProximaNova-Bold.ttf").endswith("fonts/ProximaNova-Bold.ttf")
+def test_fonts_by_role():
+    """The style guide's weights: Extrabold for data, Bold for labels, Semibold for supporting numbers."""
+    fonts, fallback = charts.load_fonts()
+    assert fallback is False
+    assert {r: Path(f.get_file()).name for r, f in fonts.items()} == {
+        "data": "proximanova-extrabold.ttf", "label": "proximanova-bold.ttf", "support": "proximanova-semibold.ttf"}
     assert charts._font_file("NoSuchFont.ttf") is None
-    assert charts.load_fonts()[2] is False  # Not the fallback
+
+
+def test_chart_text_uses_the_weights_for_its_role(monkeypatch):
+    df = pd.DataFrame({"Label": ["Mon", "Tue"], "Value 1": [40, 80], "Value 2": [None, None]})
+    ax = drawn_axes(monkeypatch, "Bar", df, show_values=True)
+    name = lambda t: Path(t.get_fontproperties().get_file()).name
+    assert {name(t) for t in ax.texts} == {"proximanova-extrabold.ttf"}  # Value labels
+    assert {name(t) for t in ax.get_xticklabels()} == {"proximanova-bold.ttf"}  # Category names
+    assert {name(t) for t in ax.get_yticklabels()} == {"proximanova-semibold.ttf"}  # Numbers
+    ax = drawn_axes(monkeypatch, "Bar", df, bar_orient="Horizontal")
+    assert {name(t) for t in ax.get_yticklabels()} == {"proximanova-bold.ttf"}
+    assert {name(t) for t in ax.get_xticklabels()} == {"proximanova-semibold.ttf"}
+
+
+def test_missing_fonts_fall_back(monkeypatch):
+    monkeypatch.setattr(charts, "_font_file", lambda name: None)
+    charts.load_fonts.cache_clear()
+    try:
+        fonts, fallback = charts.load_fonts()
+        assert fallback is True and fonts["data"].get_weight() == "bold" and fonts["support"].get_weight() == "normal"
+        draw("Bar", pd.DataFrame({"Label": ["a"], "Value 1": [1], "Value 2": [None]}), show_values=True)
+    finally:
+        charts.load_fonts.cache_clear()

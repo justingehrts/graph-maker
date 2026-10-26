@@ -68,4 +68,4 @@ That configuration starts Streamlit with CORS and XSRF protection turned off, wh
 
 ## Fonts
 
-The app uses Proxima Nova (`ProximaNova-Regular.ttf`, `ProximaNova-Bold.ttf`) when the files are in the `fonts` folder (or the top-level repo folder), and falls back to the default sans-serif font when they aren't. Proxima Nova is a commercial font, so make sure you're licensed to use and distribute it.
+The charts use Proxima Nova in the Weather Impact 2.0 style guide's three weights, from the `fonts` folder: Extrabold for data labels and call-outs, Bold for X axis labels and Semibold for Y axis numbers. The app falls back to the default sans-serif font when those files aren't there. Proxima Nova is a commercial font, so make sure you're licensed to use and distribute it.
