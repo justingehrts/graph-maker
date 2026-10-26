@@ -22,3 +22,8 @@ Ideas we've talked through and decided to hold. Not promised; add one when it st
 **Why hold:** xmACIS and cli-MATE are better at querying, and getting data from them is quick for you. We decided not to build a general query tool.
 - Threshold day counts per year (e.g. days at or above 90°) as a Year Ranking option.
 - Decadal averages as bars.
+
+## Canvas size presets
+
+**Why hold:** the sizes for the new Weather Impact graphics package aren't known yet.
+- When they are: a size dropdown above the Width and Height boxes, with those sizes. The boxes stay for custom sizes.
