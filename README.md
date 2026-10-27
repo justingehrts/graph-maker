@@ -7,7 +7,7 @@ A Streamlit app for building chart graphics for on-air weather segments, exporte
 - Enter data in the table, paste cells straight from Excel/Google Sheets, or import a CSV/Excel file (first column = labels, next 1–2 columns = numbers)
 - Bar or line charts with one or two series, any number of highlighted points, and optional data labels, which can sit past the end of each bar or inside it (in White or WI Navy, whichever reads better on the bar)
 - ★ Climate presets (pick them in the Chart Type row at the top) that can pull a station's full daily history from ACIS (the official NWS data behind xmACIS and NOWData) and are styled after IEM's autoplots:
-  - **Running Total vs Normal** (like #172): season-to-date rain or snow against normal, with the range of all years and the highest/lowest years
+  - **Running Total vs Normal** (like #172): season-to-date rain or snow against normal, with the range of all years and the highest/lowest years. A season can start on Jan 1, Jul 1 (snow), Oct 1 (water year) or a meteorological season start (Mar 1, Jun 1, Sep 1, Dec 1)
   - **Record & Normal Band** (like #113): daily highs and lows over warm/cool record bands and the normal range, for a month or a full year, with new records marked
   - **Year Ranking** (like #107 / #189): every year on record, by year or sorted, with one year highlighted and ranked (e.g. "5th wettest of 133 years"), an average line and an optional trend line
   - **Range Bars** (like #10): floating bars from a start to an end. From station data the app builds the growing season for every year: the last spring and first fall low at or below a threshold (32° and below by default, the NWS definition of a freeze)

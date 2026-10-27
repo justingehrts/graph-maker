@@ -55,7 +55,10 @@ state_defaults = {
 
 # Station-data panel choices; saved with projects so the data can be fetched again
 TODAY = date.today()
-RT_STARTS = {"Jan 1": (1, 1), "Jul 1": (7, 1), "Oct 1": (10, 1)}
+# Season start dates: calendar year, the meteorological seasons (Mar 1 spring, Jun 1 summer, Sep 1 fall, Dec 1 winter),
+# snow seasons (Jul 1) and water years (Oct 1). Each runs from its start through the latest data.
+RT_STARTS = {"Jan 1": (1, 1), "Mar 1": (3, 1), "Jun 1": (6, 1), "Jul 1": (7, 1), "Sep 1": (9, 1), "Oct 1": (10, 1),
+             "Dec 1": (12, 1)}
 SEASONS = {"Winter (Dec–Feb)": ((12, 1), (2, 28)), "Spring (Mar–May)": ((3, 1), (5, 31)),
            "Summer (Jun–Aug)": ((6, 1), (8, 31)), "Fall (Sep–Nov)": ((9, 1), (11, 30))}
 RB_MODES = ["Full year", "Month", "Date range"]
@@ -553,7 +556,8 @@ if is_preset:
                 c1, c2, c3 = st.columns(3)
                 c1.radio("Variable", ["Rain", "Snow"], key='rt_var', horizontal=True)
                 c2.selectbox("Season starts", list(RT_STARTS), key='rt_start',
-                             help="Snow seasons usually start Jul 1; water years Oct 1.")
+                             help="Snow seasons usually start Jul 1; water years Oct 1. Mar 1, Jun 1, Sep 1 and Dec 1 start the "
+                                  "meteorological seasons; pick a \"Through\" date to stop at the season's end.")
                 if ss.rt_year not in years: ss.rt_year = years[0]
                 start_month = RT_STARTS[ss.rt_start][0]
                 c3.selectbox("Season", years, key='rt_year', format_func=lambda y: iem.season_label(y, start_month))

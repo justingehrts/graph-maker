@@ -460,3 +460,20 @@ def test_axis_range_boxes():
 def test_axis_range_boxes_hidden_for_dates():
     at = new(chart_type="Range Bars", value_kind="Date")
     assert not [n for n in at.number_input if n.label in ("Y minimum", "Y maximum")] and problems(at) == []
+
+
+def test_running_total_season_starts():
+    at = new(chart_type="Running Total vs Normal", iem_state="IA", iem_station="IATAME")
+    assert widget(at, "selectbox", "Season starts").options == ["Jan 1", "Mar 1", "Jun 1", "Jul 1", "Sep 1", "Oct 1", "Dec 1"]
+
+
+@pytest.mark.parametrize("start, year, through, first", [
+    ("Dec 1", 2024, "2025-02-28", "2024-12-01"), ("Mar 1", 2025, "2025-05-31", "2025-03-01"),
+    ("Jun 1", 2025, "2025-08-31", "2025-06-01"), ("Sep 1", 2024, "2024-11-30", "2024-09-01")])
+def test_running_total_from_a_meteorological_start(start, year, through, first):
+    at = use_station("Running Total vs Normal", rt_start=start, rt_year=year, rt_to_latest=False,
+                     rt_end=pd.Timestamp(through).date())
+    df = at.session_state.datasets["Running Total vs Normal"]
+    assert df["Date"].iloc[0] == pd.Timestamp(first) and df["Date"].iloc[-1] == pd.Timestamp(through)
+    assert df["Observed"].is_monotonic_increasing and df["Normal"].iloc[-1] > 0
+    assert f"{year}-{str(year + 1)[-2:]}" in at.session_state.source_notes["Running Total vs Normal"]
