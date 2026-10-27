@@ -22,7 +22,7 @@ state_defaults = {
     'x_sz': 28, 'y_sz': 28, 'y_step': 10.0, 'y_auto': True,
     'bar_gap': 0.22, 'y_start_zero': True, 'y_min': None, 'y_max': None,  # None: the axis range is automatic
     'show_values': False, 'value_pos': "End", 'value_sz': 24,
-    'highlight_idx': "None", 'highlight_color': '#59C8FF',
+    'highlight_idxs': [], 'highlight_color': '#59C8FF',  # Rows of the table drawn in the highlight color
     'line_width': 8, 'marker_size': 15, 'marker_symbol': 'Circle',
     'x_rot': 0, 'x_label_every': "Auto", 'x_label_band': True,
     'value_kind': "Number",  # "Date": values are days of the year (e.g. last 80° day by year), shown as "Oct 18"
@@ -140,8 +140,9 @@ def sanitize_setting(key, val):
         return val.upper() if isinstance(val, str) and val.upper() in PALETTE_SETS[key].values() else None
     if key in COLOR_KEYS:
         return val if isinstance(val, str) and re.fullmatch(r'#[0-9A-Fa-f]{6}', val) else None
-    if key == 'highlight_idx':
-        return val if val == "None" or (isinstance(val, int) and not isinstance(val, bool) and val >= 0) else None
+    if key == 'highlight_idxs':
+        ok = isinstance(val, list) and all(isinstance(i, int) and not isinstance(i, bool) and i >= 0 for i in val)
+        return sorted(set(val))[:500] if ok else None
     if isinstance(state_defaults.get(key), bool):
         return val if isinstance(val, bool) else None
     return None
@@ -296,6 +297,9 @@ def handle_json():
         settings['yr_order'], settings['yr_rank_dir'] = "Sorted", old_order
     if 'y_step' in settings and 'y_auto' not in settings:
         settings['y_auto'] = False  # Older projects chose their Y interval by hand
+    old_highlight = settings.pop('highlight_idx', None)  # Earlier projects highlighted one row ("None" or its number)
+    if 'highlight_idxs' not in settings and isinstance(old_highlight, int) and not isinstance(old_highlight, bool):
+        settings['highlight_idxs'] = [old_highlight]
     snapped = snap_settings(settings, PALETTE_SETS)  # Older projects: off-palette colors snap to the closest
     if snapped:
         st.toast("Colors outside the Weather Impact 2.0 palette were changed to the closest palette color: "
@@ -660,7 +664,6 @@ st.session_state._current_table = (key, df_clean)
 # --- 5. UI / SIDEBAR ---
 def highlight_option_label(i, labels):
     """Show highlight choices by their label; add the row number when a label is blank or repeated."""
-    if i == "None": return "None"
     label = labels[i].strip()
     if not label: return f"Row {i + 1}"
     return f"{label} (row {i + 1})" if labels.count(labels[i]) > 1 else label
@@ -833,10 +836,10 @@ with st.sidebar:
                 palette_chiclets("Series 2", 'last_c2', bar_options)
             st.divider()
             labels = df_clean["Label"].tolist()
-            h_opts = ["None"] + list(range(len(labels)))
-            if st.session_state.highlight_idx not in h_opts: st.session_state.highlight_idx = "None"
-            st.selectbox("Highlight Point", h_opts, key='highlight_idx', format_func=lambda i: highlight_option_label(i, labels),
-                         help="Draws one point (Series 1) in the highlight color.")
+            st.session_state.highlight_idxs = [i for i in st.session_state.highlight_idxs if i < len(labels)]
+            st.multiselect("Highlight Points", list(range(len(labels))), key='highlight_idxs',
+                           format_func=lambda i: highlight_option_label(i, labels), placeholder="None",
+                           help="Draws these points (Series 1) in the highlight color.")
             palette_chiclets("Highlight", 'highlight_color', bar_options)
         else:
             st.caption("Chart colors for presets are in Preset Options.")

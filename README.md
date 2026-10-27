@@ -5,7 +5,7 @@ A Streamlit app for building chart graphics for on-air weather segments, exporte
 ## Features
 
 - Enter data in the table, paste cells straight from Excel/Google Sheets, or import a CSV/Excel file (first column = labels, next 1–2 columns = numbers)
-- Bar or line charts with one or two series, a highlighted point, and optional data labels, which can sit past the end of each bar or inside it (in White or WI Navy, whichever reads better on the bar)
+- Bar or line charts with one or two series, any number of highlighted points, and optional data labels, which can sit past the end of each bar or inside it (in White or WI Navy, whichever reads better on the bar)
 - ★ Climate presets (pick them in the Chart Type row at the top) that can pull a station's full daily history from ACIS (the official NWS data behind xmACIS and NOWData) and are styled after IEM's autoplots:
   - **Running Total vs Normal** (like #172): season-to-date rain or snow against normal, with the range of all years and the highest/lowest years
   - **Record & Normal Band** (like #113): daily highs and lows over warm/cool record bands and the normal range, for a month or a full year, with new records marked

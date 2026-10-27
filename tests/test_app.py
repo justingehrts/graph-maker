@@ -78,12 +78,15 @@ def test_manual_y_interval_guard():
 
 def test_highlight_by_label_and_paste():
     at = new()
-    hl = widget(at, "selectbox", "Highlight Point")
-    assert hl.options == ["None", "Mon", "Tue", "Wed", "Thu", "Fri"]
+    hl = widget(at, "multiselect", "Highlight Points")
+    assert hl.options == ["Mon", "Tue", "Wed", "Thu", "Fri"] and hl.value == []
+    hl.set_value(["Tue", "Fri"]).run()
+    assert at.session_state.highlight_idxs == [1, 4] and problems(at) == []
     at.text_area[0].input("Day\tHigh\nSat\t70°\nSun\t72°\n").run()
     widget(at, "button", "Use pasted data").click().run()
     assert at.session_state.datasets["Basic"]["Label"].tolist() == ["Sat", "Sun"]
-    assert widget(at, "selectbox", "Highlight Point").options == ["None", "Sat", "Sun"]
+    assert widget(at, "multiselect", "Highlight Points").options == ["Sat", "Sun"]
+    assert at.session_state.highlight_idxs == [1] and problems(at) == []  # Row 4 is gone; row 1 (Sun) stays
 
 
 def test_paste_with_extra_and_duplicate_columns():

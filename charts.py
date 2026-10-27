@@ -453,9 +453,9 @@ def render_basic(df, s, txt_col):
 
     # Highlight applies to series 1 at the chosen index
     c1 = [s['last_c1']] * len(v1)
-    hl = s['highlight_idx'] if s['highlight_idx'] != "None" and s['highlight_idx'] < len(c1) else None
-    if hl is not None:
-        c1[hl] = s['highlight_color']
+    marked = sorted({i for i in s['highlight_idxs'] if isinstance(i, int) and 0 <= i < len(c1)})
+    for i in marked:
+        c1[i] = s['highlight_color']
 
     y_lo, y_hi = _axis_range(*y_limits(v1 + v2, _start_zero(s)), s)
     horizontal = s['chart_type'] == "Bar" and s['bar_orient'] == "Horizontal"
@@ -485,9 +485,9 @@ def render_basic(df, s, txt_col):
                     ax.text(i, v + offset if v >= 0 else v - offset, format_number(v, s), ha='center',
                             va='bottom' if v >= 0 else 'top', zorder=5, **label_kw)
 
-    _categories(ax, labels, label_positions(labels, s, keep=[hl]), horizontal)
+    _categories(ax, labels, label_positions(labels, s, keep=marked), horizontal)
     y_step = _style_y(ax, s, txt_col, y_lo, y_hi, axis="x" if horizontal else "y")
-    fit = dict(labels=labels, keep={hl} - {None}, thin=s['x_label_every'] == "Auto")
+    fit = dict(labels=labels, keep=set(marked), thin=s['x_label_every'] == "Auto")
     return _finish(fig, ax, s, txt_col, y_lo, y_hi, horizontal=horizontal, fit_labels=fit), y_step
 
 

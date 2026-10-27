@@ -2,6 +2,7 @@
 import re
 from pathlib import Path
 
+import matplotlib.colors
 import pandas as pd
 import pytest
 
@@ -26,7 +27,7 @@ def test_horizontal_bar(two, kind):
     df = pd.DataFrame({"Label": ["Columbus", "Dayton", "Cincinnati"], "Value 1": [2.4, -0.6, 1.1], "Value 2": [1.0, 0.5, -1.5]})
     if kind == "Date":
         df[["Value 1", "Value 2"]] = [[280, 290], [275, 300], [295, 285]]
-    draw("Bar", df, bar_orient="Horizontal", show_v2=two, show_values=True, highlight_idx=0, value_kind=kind)
+    draw("Bar", df, bar_orient="Horizontal", show_v2=two, show_values=True, highlight_idxs=[0], value_kind=kind)
 
 
 @pytest.mark.parametrize("style", ["Bars", "Dots"])
@@ -81,7 +82,7 @@ def drawn_axes(monkeypatch, ct, df, **kw):
 @pytest.mark.parametrize("orient", ["Vertical", "Horizontal"])
 def test_gradient_bars_and_inside_labels(monkeypatch, orient):
     df = pd.DataFrame({"Label": ["Mon", "Tue", "Wed"], "Value 1": [80, 2, 60], "Value 2": [None] * 3})
-    ax = drawn_axes(monkeypatch, "Bar", df, bar_orient=orient, last_c1=BLUE_GRAD, highlight_idx=2,
+    ax = drawn_axes(monkeypatch, "Bar", df, bar_orient=orient, last_c1=BLUE_GRAD, highlight_idxs=[2],
                     highlight_color=NAVY_GRAD, show_values=True, value_pos="Inside")
     assert len(ax.images) == 3  # One gradient per bar
     labels = {t.get_text(): t for t in ax.texts}
@@ -100,7 +101,7 @@ def test_gradient_bars_in_year_ranking_and_range_bars(monkeypatch):
 
 def test_gradient_colors_become_solid_for_lines():
     draw("Line", pd.DataFrame({"Label": ["a", "b"], "Value 1": [1, 2], "Value 2": [None, None]}), last_c1=NAVY_GRAD,
-         highlight_idx=0, highlight_color=BLUE_GRAD)
+         highlight_idxs=[0], highlight_color=BLUE_GRAD)
     draw("Year Ranking", dio.sample_data("Year Ranking"), yr_style="Dots", yr_color=NAVY_GRAD)
 
 
@@ -215,7 +216,7 @@ def test_long_names_wrap_and_every_city_keeps_its_label(monkeypatch):
 
 def test_years_are_skipped_evenly_and_the_highlighted_one_stays(monkeypatch):
     names = [str(y) for y in range(1990, 2026)]
-    shown = [t for t, _ in visible_labels(monkeypatch, "Bar", basic(names), highlight_idx=5, **FULL)]
+    shown = [t for t, _ in visible_labels(monkeypatch, "Bar", basic(names), highlight_idxs=[5], **FULL)]
     assert "1995" in shown and 4 < len(shown) < 36  # 1995 isn't on the regular spacing but is kept
 
 
@@ -275,3 +276,37 @@ def test_axis_range_ignored_for_dates(monkeypatch):
     df = dio.sample_data("Range Bars")
     auto = axis_limits(monkeypatch, "Range Bars", df, value_kind="Date")
     assert axis_limits(monkeypatch, "Range Bars", df, value_kind="Date", y_min=1, y_max=2) == auto
+
+
+# --- Several highlighted bars ---
+
+def bar_colors(monkeypatch, df, **kw):
+    seen = {}
+    real_close = charts.plt.close
+
+    def grab(fig):
+        seen["colors"] = [matplotlib.colors.to_hex(p.get_facecolor()).upper() for p in fig.axes[0].patches
+                          if p.get_clip_on()]
+        real_close(fig)
+
+    monkeypatch.setattr(charts.plt, "close", grab)
+    draw("Bar", df, **kw)
+    return seen["colors"]
+
+
+def test_several_bars_highlighted(monkeypatch):
+    df = basic(list("ABCDE"))
+    colors = bar_colors(monkeypatch, df, highlight_idxs=[1, 3], highlight_color="#59C8FF", last_c1="#285DA3")
+    assert colors == ["#285DA3", "#59C8FF", "#285DA3", "#59C8FF", "#285DA3"]
+    assert bar_colors(monkeypatch, df, highlight_idxs=[], last_c1="#285DA3") == ["#285DA3"] * 5
+    assert bar_colors(monkeypatch, df, highlight_idxs=[9, -1], last_c1="#285DA3") == ["#285DA3"] * 5  # Out of range: ignored
+
+
+def test_every_highlighted_label_is_kept(monkeypatch):
+    names = [str(y) for y in range(1990, 2026)]
+    shown = [t for t, _ in visible_labels(monkeypatch, "Bar", basic(names), highlight_idxs=[5, 12, 33], **FULL)]
+    assert {"1995", "2002", "2023"} <= set(shown)
+
+
+def test_highlighting_points_on_a_line(monkeypatch):
+    draw("Line", basic(list("ABCDE")), highlight_idxs=[0, 4], highlight_color="#59C8FF")
