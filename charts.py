@@ -129,19 +129,119 @@ def _style_y(ax, s, txt_col, y_lo, y_hi, axis="y"):
     return y_step
 
 
-def _finish(fig, ax, s, txt_col, y_lo, y_hi, zero_line=True, horizontal=False):
+MIN_SHRINK = 0.6  # Category names are never shrunk below this fraction of the X label size
+_SEQUENCE_LABEL = re.compile(r"\s*[-+−$]?[\d.,]+[%°\"]?\s*")
+
+
+def _is_sequence_label(text):
+    """Years and plain numbers: labels that can be skipped (1990, 1992, …) without losing a name."""
+    return _year_of(text) is not None or bool(_SEQUENCE_LABEL.fullmatch(str(text)))
+
+
+def _label_extent(renderer, text, size, rot):
+    """Horizontal pixels a label takes up (all its lines, allowing for rotation)."""
+    fp = _font('label').copy()
+    fp.set_size(size)
+    measure = lambda t: renderer.get_text_width_height_descent(t, fp, False)
+    lines = str(text).split("\n")
+    width = max(measure(line)[0] for line in lines)
+    height = measure("Hg")[1] * 1.2 * len(lines)
+    angle = math.radians(rot)
+    if abs(math.sin(angle)) > 0.26:  # Tilted past about 15 degrees, neighbors only need their line height apart
+        return height / abs(math.sin(angle))
+    return width * abs(math.cos(angle)) + height * abs(math.sin(angle))
+
+
+def _wrap_label(renderer, text, size):
+    """The label on two lines, split after a space or "/" where the longer line is shortest (or unchanged)."""
+    text = str(text)
+    best = None
+    for m in re.finditer(r"[ /]", text):
+        first, second = text[:m.end()].rstrip(), text[m.end():].lstrip()
+        if first and second:
+            width = max(_label_extent(renderer, first, size, 0), _label_extent(renderer, second, size, 0))
+            if best is None or width < best[0]:
+                best = (width, f"{first}\n{second}")
+    return best[1] if best else text
+
+
+def _fit_labels(fig, ax, s, labels, keep, thin):
+    """Make the category labels of a vertical chart fit their slots; returns the font size to use for them.
+
+    A label too wide for its slot is wrapped onto two lines (unless labels are rotated). Names that still don't
+    fit are shrunk, down to MIN_SHRINK of the size; years and numbers are skipped evenly instead (and so are names
+    that can't fit even when shrunk), but only when `thin` (the X Axis Labels choice is Auto). Labels in `keep`
+    (highlighted bars) always stay.
+    """
+    renderer = fig.canvas.get_renderer()
+    n, size, rot = len(labels), s['x_sz'], s['x_rot']
+    shown = sorted({int(round(t)) for t in ax.get_xticks() if 0 <= round(t) < n and abs(t - round(t)) < 1e-6})
+    if not shown:
+        return size
+    lo, hi = ax.get_xlim()
+    axes_width = ax.get_window_extent(renderer).width
+    slot = axes_width / abs(hi - lo)
+    gaps = sorted(b - a for a, b in zip(shown, shown[1:]))
+    step = gaps[len(gaps) // 2] if gaps else 1
+    pad = size * 0.4 * fig.dpi / 72
+    texts = {i: str(labels[i]) for i in shown}
+    keep = {k for k in keep if 0 <= k < n}
+    if rot == 0:
+        texts = {i: _wrap_label(renderer, t, size) if _label_extent(renderer, t, size, rot) + pad > slot * step else t
+                 for i, t in texts.items()}
+
+    def collide(sz):
+        """Whether neighboring labels touch, with those at the ends nudged inside the axes (as the strip does)."""
+        boxes = []
+        for i in shown:
+            width = _label_extent(renderer, texts[i], sz, rot)
+            left = min(max((i - min(lo, hi)) * slot - width / 2, 0), max(axes_width - width, 0))
+            boxes.append((left, left + width))
+        return any(a[1] + pad > b[0] for a, b in zip(boxes, boxes[1:]))
+
+    names = not all(_is_sequence_label(labels[i]) for i in shown)
+    scale = 1.0
+    while collide(size * scale):
+        if names and scale > MIN_SHRINK:
+            scale = max(MIN_SHRINK, scale * 0.94)
+        elif thin and len(shown) > 1:
+            step *= 2  # Skip every other label
+            fewer = _make_room(set(shown[::2]), keep, step)
+            if fewer == shown:  # Only the labels that must stay are left
+                break
+            shown = fewer
+        else:
+            break
+    ax.set_xticks(shown)
+    ax.set_xticklabels([texts.get(i, str(labels[i])) for i in shown])
+    ax.set_xlim(lo, hi)
+    return size * scale
+
+
+def _finish(fig, ax, s, txt_col, y_lo, y_hi, zero_line=True, horizontal=False, fit_labels=None):
     """Fonts, spines, zero line and gridlines shared by every chart; returns PNG bytes.
 
     The "X axis label" settings style the category labels and the "Y axis value" settings the numbers, so on a
     horizontal chart (values along the bottom) they swap axes. Rotation applies to vertical charts only.
+    `fit_labels` ({labels, keep, thin}, for vertical charts with one slot per category) wraps, shrinks or skips
+    category labels that would overlap.
     """
-    ax.tick_params(axis='y' if horizontal else 'x', colors=txt_col, width=3, length=8, zorder=4)
-    values, categories = (ax.get_xticklabels(), ax.get_yticklabels()) if horizontal else (ax.get_yticklabels(), ax.get_xticklabels())
-    for tick in values:
-        tick.set_fontproperties(_font('support')); tick.set_fontsize(s['y_sz']); tick.set_color(txt_col)
-    for tick in categories:
-        tick.set_fontproperties(_font('label')); tick.set_fontsize(s['x_sz']); tick.set_color(txt_col)
-        if not horizontal: tick.set_rotation(s['x_rot'])
+    x_size = s['x_sz']
+
+    def style_ticks():
+        ax.tick_params(axis='y' if horizontal else 'x', colors=txt_col, width=3, length=8, zorder=4)
+        values, categories = (ax.get_xticklabels(), ax.get_yticklabels()) if horizontal else (ax.get_yticklabels(), ax.get_xticklabels())
+        for tick in values:
+            tick.set_fontproperties(_font('support')); tick.set_fontsize(s['y_sz']); tick.set_color(txt_col)
+        for tick in categories:
+            tick.set_fontproperties(_font('label')); tick.set_fontsize(x_size); tick.set_color(txt_col)
+            if not horizontal: tick.set_rotation(s['x_rot'])
+
+    style_ticks()
+    if fit_labels and not horizontal:
+        fig.tight_layout()  # The axes' final width decides how much room each label has
+        x_size = _fit_labels(fig, ax, s, **fit_labels)
+        style_ticks()
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
     for side in ['left', 'bottom']:
@@ -154,7 +254,7 @@ def _finish(fig, ax, s, txt_col, y_lo, y_hi, zero_line=True, horizontal=False):
     ax.set_axisbelow(True)
     band = s.get('x_label_band') and not horizontal
     if band:  # White category labels centered in a WI Navy strip under the plot
-        pad_pt = s['x_sz'] * 0.45
+        pad_pt = x_size * 0.45
         ax.tick_params(axis='x', which='both', length=0, pad=pad_pt, labelcolor=STRIP_TEXT)
         ax.spines['bottom'].set_visible(False)
     fig.tight_layout()
@@ -377,7 +477,8 @@ def render_basic(df, s, txt_col):
 
     _categories(ax, labels, label_positions(labels, s, keep=[hl]), horizontal)
     y_step = _style_y(ax, s, txt_col, y_lo, y_hi, axis="x" if horizontal else "y")
-    return _finish(fig, ax, s, txt_col, y_lo, y_hi, horizontal=horizontal), y_step
+    fit = dict(labels=labels, keep={hl} - {None}, thin=s['x_label_every'] == "Auto")
+    return _finish(fig, ax, s, txt_col, y_lo, y_hi, horizontal=horizontal, fit_labels=fit), y_step
 
 
 # --- Running total vs normal (IEM autoplot #172 style) ---
@@ -591,6 +692,7 @@ def render_year_ranking(df, s, txt_col):
                 _callout(ax, text, (x[i], vals[i]), s, txt_col,
                          offset=(0, 30 + (s['value_sz'] * 1.8 if s['show_values'] else 0)))
     mode = s.get('x_label_every', "Auto")
+    fit = None
     if numeric_years:
         # Years are the axis values here, so "every 5th" and "ending in 0 or 5" are the same thing
         ax.xaxis.set_major_locator(MaxNLocator(nbins=10, integer=True) if mode == "Auto"
@@ -601,8 +703,9 @@ def render_year_ranking(df, s, txt_col):
         shown = ([i for i in x if label_all or is_hl[i]] if mode == "Auto" and not by_year
                  else label_positions(d["Year"].tolist(), s, keep=keep))
         _categories(ax, d["Year"].tolist(), shown, horizontal)
+        fit = dict(labels=d["Year"].tolist(), keep=set(keep), thin=mode == "Auto")
     y_step = _style_y(ax, s, txt_col, y_lo, y_hi, axis="x" if horizontal else "y")
-    return _finish(fig, ax, s, txt_col, y_lo, y_hi, horizontal=horizontal), y_step
+    return _finish(fig, ax, s, txt_col, y_lo, y_hi, horizontal=horizontal, fit_labels=fit), y_step
 
 
 # --- Range bars (floating bars, e.g. growing season per year; IEM autoplot #10 style) ---
@@ -681,10 +784,12 @@ def render_range_bars(df, s, txt_col):
                 _callout(ax, text, (end[i], i), s, txt_col, ha="left", va="center", offset=(12 + extra, 0))
             else:
                 _callout(ax, text, (i, end[i]), s, txt_col, offset=(0, 20 + (s['value_sz'] * 1.6 if extra else 0)))
-    _categories(ax, d["Label"].tolist(), label_positions(d["Label"].tolist(), s, keep=[d["Label"].tolist().index(hl)] if hl else []),
-                horizontal)
+    names = d["Label"].tolist()
+    keep = [names.index(hl)] if hl else []
+    _categories(ax, names, label_positions(names, s, keep=keep), horizontal)
     y_step = _style_y(ax, s, txt_col, y_lo, y_hi, axis="x" if horizontal else "y")
-    return _finish(fig, ax, s, txt_col, y_lo, y_hi, horizontal=horizontal, zero_line=not _is_dates(s)), y_step
+    fit = dict(labels=names, keep=set(keep), thin=s['x_label_every'] == "Auto")
+    return _finish(fig, ax, s, txt_col, y_lo, y_hi, horizontal=horizontal, zero_line=not _is_dates(s), fit_labels=fit), y_step
 
 
 RENDERERS = {"Bar": render_basic, "Line": render_basic, "Running Total vs Normal": render_running_total,

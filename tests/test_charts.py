@@ -153,3 +153,83 @@ def test_missing_fonts_fall_back(monkeypatch):
         draw("Bar", pd.DataFrame({"Label": ["a"], "Value 1": [1], "Value 2": [None]}), show_values=True)
     finally:
         charts.load_fonts.cache_clear()
+
+
+# --- Fitting the X axis labels ---
+
+CITIES = ["Cincinnati", "Columbus", "Cleveland", "Dayton", "Toledo", "Akron", "Youngstown", "Mansfield", "Zanesville",
+          "Wilmington", "Lima", "Springfield"]
+AIRPORTS = ["Cincinnati/Northern Kentucky", "Columbus Port Columbus Intl", "Cleveland Hopkins Intl",
+            "Dayton Intl Airport", "Toledo Express"]
+
+
+FULL = dict(width=1920, height=1080)  # A real canvas; the 640-pixel test default is far tighter than anything used on air
+
+
+def basic(labels):
+    return pd.DataFrame({"Label": labels, "Value 1": range(10, 10 + len(labels)), "Value 2": [None] * len(labels)})
+
+
+def visible_labels(monkeypatch, ct, df, **kw):
+    """(text, pixel box) of each category label that ends up on the chart, left to right. Measured just before the
+    figure is closed, while it can still be laid out."""
+    seen = []
+    real_close = charts.plt.close
+
+    def measure_then_close(fig):
+        ax = fig.axes[0]
+        renderer = fig.canvas.get_renderer()
+        lo, hi = sorted(ax.get_xlim())
+        ticks = [t.label1 for t in ax.xaxis.get_major_ticks() if lo <= t.get_loc() <= hi and t.label1.get_text()]
+        seen.extend((t.get_text(), t.get_window_extent(renderer)) for t in ticks)
+        real_close(fig)
+
+    monkeypatch.setattr(charts.plt, "close", measure_then_close)
+    draw(ct, df, **kw)
+    return sorted(seen, key=lambda item: item[1].x0)
+
+
+def assert_no_overlap(labels):
+    for (a, box_a), (b, box_b) in zip(labels, labels[1:]):
+        assert box_a.x1 <= box_b.x0, f"{a!r} runs into {b!r}"
+
+
+@pytest.mark.parametrize("names, kw", [
+    (CITIES, {}),
+    (AIRPORTS, {}),
+    (CITIES, dict(x_label_band=False)),
+    ([str(y) for y in range(1990, 2026)], {}),
+    ([str(y) for y in range(1990, 2026)], dict(show_values=True, x_sz=40)),
+    ([f"Station {i}" for i in range(30)], {}),
+])
+def test_x_labels_never_overlap(monkeypatch, names, kw):
+    assert_no_overlap(visible_labels(monkeypatch, "Bar", basic(names), **kw))
+
+
+def test_long_names_wrap_and_every_city_keeps_its_label(monkeypatch):
+    shown = [t for t, _ in visible_labels(monkeypatch, "Bar", basic(AIRPORTS), **FULL)]
+    assert shown[0] == "Cincinnati/\nNorthern Kentucky" and len(shown) == 5
+    cities = [t for t, _ in visible_labels(monkeypatch, "Bar", basic(CITIES), **FULL)]
+    assert cities == CITIES  # Names shrink to fit rather than being dropped
+
+
+def test_years_are_skipped_evenly_and_the_highlighted_one_stays(monkeypatch):
+    names = [str(y) for y in range(1990, 2026)]
+    shown = [t for t, _ in visible_labels(monkeypatch, "Bar", basic(names), highlight_idx=5, **FULL)]
+    assert "1995" in shown and 4 < len(shown) < 36  # 1995 isn't on the regular spacing but is kept
+
+
+def test_explicit_label_spacing_is_respected(monkeypatch):
+    names = [str(y) for y in range(1990, 2026)]
+    shown = visible_labels(monkeypatch, "Bar", basic(names), x_label_every="Every 2nd")
+    assert len(shown) == 18  # Not thinned further, even where they're tight
+
+
+def test_rotated_labels_still_draw(monkeypatch):
+    assert len(visible_labels(monkeypatch, "Bar", basic(AIRPORTS), x_rot=45, **FULL)) == 5
+    assert len(visible_labels(monkeypatch, "Line", basic(CITIES), x_rot=-30, **FULL)) == 12
+
+
+def test_short_labels_are_left_alone(monkeypatch):
+    shown = [t for t, _ in visible_labels(monkeypatch, "Bar", basic(["Mon", "Tue", "Wed", "Thu", "Fri"]))]
+    assert shown == ["Mon", "Tue", "Wed", "Thu", "Fri"]
