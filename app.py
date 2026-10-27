@@ -20,7 +20,7 @@ state_defaults = {
     'last_c1': '#285DA3', 'last_c2': '#A3BCC6', 'show_v2': False,
     'chart_type': "Bar", 'width': 1920, 'height': 1080,
     'x_sz': 28, 'y_sz': 28, 'y_step': 10.0, 'y_auto': True,
-    'bar_gap': 0.22, 'y_start_zero': True,
+    'bar_gap': 0.22, 'y_start_zero': True, 'y_min': None, 'y_max': None,  # None: the axis range is automatic
     'show_values': False, 'value_pos': "End", 'value_sz': 24,
     'highlight_idx': "None", 'highlight_color': '#59C8FF',
     'line_width': 8, 'marker_size': 15, 'marker_symbol': 'Circle',
@@ -134,6 +134,8 @@ def sanitize_setting(key, val):
         return type(lo)(min(max(val, lo), hi))
     if key in TEXT_KEYS:
         return val if isinstance(val, str) and len(val) <= TEXT_KEYS[key] else None
+    if key in ('y_min', 'y_max'):  # Optional: None keeps the axis automatic
+        return float(val) if isinstance(val, (int, float)) and not isinstance(val, bool) and abs(val) <= 1e9 else None
     if key in PALETTE_SETS:
         return val.upper() if isinstance(val, str) and val.upper() in PALETTE_SETS[key].values() else None
     if key in COLOR_KEYS:
@@ -299,10 +301,12 @@ def handle_json():
         st.toast("Colors outside the Weather Impact 2.0 palette were changed to the closest palette color: "
                  + ", ".join(snapped))
     # Only load known keys with valid values; anything else keeps its current setting
+    for k in ('y_min', 'y_max'):
+        settings.setdefault(k, None)  # A fixed axis range belongs to the project: older ones are automatic
     for k, v in settings.items():
         if k not in state_defaults: continue
         safe_val = sanitize_setting(k, v)
-        if safe_val is not None: st.session_state[k] = safe_val
+        if safe_val is not None or k in ('y_min', 'y_max'): st.session_state[k] = safe_val
     for k, v in (p.get('iem_query') or {}).items():
         if k == 'normal_period' and v == "1991–2020":
             v = "NCEI 1991–2020"  # Earlier versions' 1991–2020 setting; it now always means the official normals
@@ -871,6 +875,16 @@ with st.sidebar:
             st.number_input("Y Interval", min_value=RANGES['y_step'][0], max_value=RANGES['y_step'][1], key='y_step')
         if ct != "Record & Normal Band":
             st.checkbox("Force Y Axis to Start at 0", key='y_start_zero')
+        if st.session_state.value_kind == "Number":
+            cmin, cmax = st.columns(2)
+            cmin.number_input("Y minimum", value=None, key='y_min', placeholder="Auto", format="%g",
+                              help="Fix the bottom of the value axis, e.g. 0. Leave blank for automatic.")
+            cmax.number_input("Y maximum", value=None, key='y_max', placeholder="Auto", format="%g",
+                              help="Fix the top of the value axis, e.g. 100 for a percent, so bars compare from "
+                                   "graphic to graphic. Leave blank for automatic.")
+            lo, hi = st.session_state.y_min, st.session_state.y_max
+            if lo is not None and hi is not None and lo >= hi:
+                st.caption("⚠️ The minimum must be below the maximum; using the automatic range.")
         st.slider("Y Axis Value Size", *RANGES['y_sz'], key='y_sz')
         if ct in dio.DATED_TYPES:
             st.selectbox("Date Labels", CHOICES['date_labels'], key='date_labels',

@@ -441,3 +441,19 @@ def test_pasting_an_xmacis_csv_with_a_rank_column():
     assert problems(at) == []
     df = at.session_state.datasets["Year Ranking"]
     assert df["Year"].tolist() == ["1878", "1879", "1880"] and df["Value"].tolist() == [94.0, 96.0, 97.0]
+
+
+def test_axis_range_boxes():
+    at = new()
+    assert at.session_state.y_min is None and at.session_state.y_max is None
+    widget(at, "number_input", "Y maximum").set_value(100).run()
+    widget(at, "number_input", "Y minimum").set_value(10).run()
+    assert (at.session_state.y_min, at.session_state.y_max) == (10, 100) and problems(at) == []
+    assert not [c for c in at.caption if "must be below" in c.value]
+    widget(at, "number_input", "Y minimum").set_value(150).run()  # Reversed: warned about, chart still draws
+    assert any("must be below" in c.value for c in at.caption) and problems(at) == []
+
+
+def test_axis_range_boxes_hidden_for_dates():
+    at = new(chart_type="Range Bars", value_kind="Date")
+    assert not [n for n in at.number_input if n.label in ("Y minimum", "Y maximum")] and problems(at) == []

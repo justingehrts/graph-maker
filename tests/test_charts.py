@@ -233,3 +233,45 @@ def test_rotated_labels_still_draw(monkeypatch):
 def test_short_labels_are_left_alone(monkeypatch):
     shown = [t for t, _ in visible_labels(monkeypatch, "Bar", basic(["Mon", "Tue", "Wed", "Thu", "Fri"]))]
     assert shown == ["Mon", "Tue", "Wed", "Thu", "Fri"]
+
+
+# --- Fixed axis range ---
+
+def axis_limits(monkeypatch, ct, df, horizontal=False, **kw):
+    seen = {}
+    real_close = charts.plt.close
+
+    def grab(fig):
+        ax = fig.axes[0]
+        seen["limits"] = ax.get_xlim() if horizontal else ax.get_ylim()
+        real_close(fig)
+
+    monkeypatch.setattr(charts.plt, "close", grab)
+    draw(ct, df, **kw)
+    return seen["limits"]
+
+
+def test_axis_range_settings(monkeypatch):
+    df = basic(["a", "b", "c"]).assign(**{"Value 1": [20, 55, 80]})
+    auto = axis_limits(monkeypatch, "Bar", df)
+    assert auto[0] == 0 and auto[1] > 80  # Headroom above the tallest bar
+    assert axis_limits(monkeypatch, "Bar", df, y_max=100) == (0, 100)
+    assert axis_limits(monkeypatch, "Bar", df, y_min=10, y_max=100) == (10, 100)
+    assert axis_limits(monkeypatch, "Bar", df, y_min=-20)[0] == -20  # Minimum alone; the top stays automatic
+    assert axis_limits(monkeypatch, "Bar", df, y_min=None, y_max=None) == auto
+    assert axis_limits(monkeypatch, "Bar", df, y_min=90, y_max=50) == auto  # Reversed: ignored
+    assert axis_limits(monkeypatch, "Bar", df, y_max=-5) == auto  # Top below the automatic bottom: ignored
+    assert axis_limits(monkeypatch, "Bar", df, horizontal=True, bar_orient="Horizontal", y_max=100) == (0, 100)
+
+
+@pytest.mark.parametrize("ct", ["Line", "Year Ranking", "Running Total vs Normal", "Record & Normal Band", "Range Bars"])
+def test_axis_range_on_every_chart_type(monkeypatch, ct):
+    df = dio.sample_data(dio.schema_key(ct))
+    kw = dict(rg_orient="Vertical") if ct == "Range Bars" else {}
+    assert axis_limits(monkeypatch, ct, df, y_min=-50, y_max=500, **kw) == (-50, 500)
+
+
+def test_axis_range_ignored_for_dates(monkeypatch):
+    df = dio.sample_data("Range Bars")
+    auto = axis_limits(monkeypatch, "Range Bars", df, value_kind="Date")
+    assert axis_limits(monkeypatch, "Range Bars", df, value_kind="Date", y_min=1, y_max=2) == auto

@@ -64,6 +64,16 @@ def y_limits(values, start_zero):
     return bottom, top
 
 
+def _axis_range(lo, hi, s):
+    """The value axis range: the automatic one, with either end replaced by the Y minimum / maximum setting when set.
+    Ignored for dates (day numbers) and when the result wouldn't have a minimum below its maximum."""
+    if _is_dates(s):
+        return lo, hi
+    new_lo, new_hi = s.get('y_min'), s.get('y_max')
+    new_lo, new_hi = lo if new_lo is None else new_lo, hi if new_hi is None else new_hi
+    return (new_lo, new_hi) if new_lo < new_hi else (lo, hi)
+
+
 def nice_step(lo, hi, max_ticks=10):
     """Smallest round interval (1, 2, 2.5, 5 x 10^n) that gives at most `max_ticks` ticks."""
     span = abs(hi - lo) or 1.0
@@ -447,7 +457,7 @@ def render_basic(df, s, txt_col):
     if hl is not None:
         c1[hl] = s['highlight_color']
 
-    y_lo, y_hi = y_limits(v1 + v2, _start_zero(s))
+    y_lo, y_hi = _axis_range(*y_limits(v1 + v2, _start_zero(s)), s)
     horizontal = s['chart_type'] == "Bar" and s['bar_orient'] == "Horizontal"
     if s['chart_type'] == "Bar":
         width_val = max(0.1, 0.8 - s['bar_gap'])  # Hard floor applied
@@ -525,7 +535,7 @@ def render_running_total(df, s, txt_col):
         ax.fill_between(dates, obs, norm, where=both & (obs < norm), interpolate=True, color=s['rt_deficit_color'],
                         alpha=s['rt_fill_alpha'], linewidth=0, zorder=2)
     ax.plot(dates, obs, color=s['rt_obs_color'], linewidth=lw, zorder=4, solid_capstyle="round")
-    y_lo, y_hi = y_limits(values, s['y_start_zero'])
+    y_lo, y_hi = _axis_range(*y_limits(values, s['y_start_zero']), s)
     if s['rt_callout'] and obs.last_valid_index() is not None:
         i = obs.last_valid_index()
         dep = obs[i] - norm[i]
@@ -586,7 +596,7 @@ def render_record_band(df, s, txt_col):
     values = d[["Actual High", "Actual Low", "Normal High", "Normal Low", "Record High", "Record Low"]].stack().tolist()
     lo, hi = (min(values), max(values)) if values else (0.0, 100.0)
     pad = (hi - lo or 10) * 0.05
-    y_lo, y_hi = lo - pad, hi + pad * (3 if s['rb_callout'] else 1)  # Snug, like IEM; room for the call-out
+    y_lo, y_hi = _axis_range(lo - pad, hi + pad * (3 if s['rb_callout'] else 1), s)  # Snug, like IEM; room for the call-out
     _date_axis(ax, x, s)
     y_step = _style_y(ax, s, txt_col, y_lo, y_hi)
     return _finish(fig, ax, s, txt_col, y_lo, y_hi, zero_line=False), y_step
@@ -650,7 +660,7 @@ def render_year_ranking(df, s, txt_col):
         ax.scatter(x, vals, color=[solid(c) for c in colors], s=s['marker_size'] ** 2, zorder=3)
     else:
         bars = _bar(ax, horizontal, x, vals, colors, 0.8 if by_year or len(d) > 40 else 0.7)
-    y_lo, y_hi = y_limits(vals, _start_zero(s))
+    y_lo, y_hi = _axis_range(*y_limits(vals, _start_zero(s)), s)
     label_kw = _label_kw(s, txt_col)
     if s['yr_avg_line'] and len(full):
         avg = full["Value"].mean()
@@ -756,6 +766,7 @@ def render_range_bars(df, s, txt_col):
     y_lo = lo - span * (room if s['rg_labels'] == "Ends" else 0.04)
     y_hi = hi + span * room
     if _start_zero(s): y_lo = min(y_lo, 0.0)
+    y_lo, y_hi = _axis_range(y_lo, y_hi, s)
     pad = (y_hi - y_lo) * 0.01
     if s['rg_avg_lines'] and len(d):
         for avg in (np.nanmean(start), np.nanmean([e for e in end if pd.notna(e)] or [np.nan])):

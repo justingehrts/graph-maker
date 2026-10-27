@@ -14,7 +14,9 @@ A Streamlit app for building chart graphics for on-air weather segments, exporte
 - Horizontal bars for Bar charts and Year Ranking, suited to sorted top-N lists and named rows (cities, event types)
 - Import the data behind any IEM autoplot by pasting the autoplot's page link
 - Number formatting: decimal places, prefix/suffix units (e.g. `°`, `%`, `"`), thousands separators
-- Control over size, fonts, colors, gridlines, axis interval and label rotation
+- Control over size, colors, gridlines, axis interval and label rotation
+- Optional fixed value-axis range (Y minimum and maximum, blank for automatic), e.g. 0 to 100 so percent bars compare from graphic to graphic
+- X axis labels fit themselves: long names wrap onto two lines, names that still don't fit shrink, and years or numbers are skipped evenly (highlighted bars always keep their label)
 - Colors follow the Weather Impact 2.0 palette (`palette.py`), chosen by clicking color chiclets:
   - **Text and axes** (including data labels and call-outs): always WI Navy, for Max's white backgrounds. Vertical charts put their X axis labels in white on a WI Navy strip (can be turned off under Axes)
   - **Bars, lines and markers:** WI Navy, Highlight Blue, Breaking Red (for Weather Impact Alert states), Blue, Yellow, Green, Coral or Gray (no White, which would vanish on Max's white background)
