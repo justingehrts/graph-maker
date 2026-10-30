@@ -477,3 +477,11 @@ def test_running_total_from_a_meteorological_start(start, year, through, first):
     assert df["Date"].iloc[0] == pd.Timestamp(first) and df["Date"].iloc[-1] == pd.Timestamp(through)
     assert df["Observed"].is_monotonic_increasing and df["Normal"].iloc[-1] > 0
     assert f"{year}-{str(year + 1)[-2:]}" in at.session_state.source_notes["Running Total vs Normal"]
+
+
+def test_climo_band_name():
+    at = new()
+    options = widget(at, "radio", "Chart Type").options
+    assert "★ Climo Band" in options and "★ Record Band" not in options
+    at = new(chart_type="Record & Normal Band")  # The saved name inside projects is unchanged
+    assert any(m.value.startswith("Daily climatology:") for m in at.caption) and problems(at) == []

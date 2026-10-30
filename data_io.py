@@ -33,8 +33,8 @@ DESCRIPTIONS = {
     "Line": "Open-ended line chart: any labels with one or two series of values.",
     "Running Total vs Normal": "Season-to-date rain or snow against normal, with the range and extremes of all years "
                                "(like IEM autoplot #172).",
-    "Record & Normal Band": "Daily highs and lows over the normal and record ranges, with new records marked "
-                            "(like IEM autoplot #113).",
+    "Record & Normal Band": "Daily climatology: each day's highs and lows over the normal and record ranges, with "
+                            "new records marked (like IEM autoplot #113).",
     "Year Ranking": "Every year on record with one year highlighted and ranked (like IEM autoplots #107 / #189).",
     "Range Bars": "Floating bars from a start to an end, e.g. the growing season (last spring to first fall "
                   "freeze) each year (like IEM autoplot #10).",

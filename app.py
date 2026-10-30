@@ -502,7 +502,7 @@ def apply_autoplot(num, title, raw, targets):
 
 # --- 4. CHART TYPE & DATA INPUT ---
 def chart_type_label(c):
-    return {"Running Total vs Normal": "★ Running Total", "Record & Normal Band": "★ Record Band",
+    return {"Running Total vs Normal": "★ Running Total", "Record & Normal Band": "★ Climo Band",
             "Year Ranking": "★ Year Ranking", "Range Bars": "★ Range Bars"}.get(c, c)
 
 ct = st.session_state.chart_type
