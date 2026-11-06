@@ -21,14 +21,33 @@ def test_restricted_sets():
 
 
 def test_snap_settings_changes_only_off_palette_restricted_colors():
-    settings = {'last_c1': "#045EA8", 'grid_color': "#FF6B6B", 'rb_normal_color': "#E0C084",
-                'text_choice': "Black"}
+    settings = {'last_c1': "#045EA8", 'grid_color': "#FF6B6B", 'rb_normal_color': "#E0C084"}
     notes = snap_settings(settings, SETS)
-    assert settings == {'last_c1': "#285DA3", 'grid_color': "#A3BCC6", 'rb_normal_color': "#E0C084",
-                        'text_choice': "WI Navy"}
+    assert settings == {'last_c1': "#285DA3", 'grid_color': "#A3BCC6", 'rb_normal_color': "#E0C084"}
     assert notes == ["#045EA8 → Blue", "#FF6B6B → Gray"]
 
 
 def test_snap_settings_leaves_palette_colors_alone():
-    settings = {'last_c1': "#d71b32", 'grid_color': "#022E67", 'text_choice': "White"}
+    settings = {'last_c1': "#d71b32", 'grid_color': "#022E67"}
     assert snap_settings(settings, SETS) == [] and settings['last_c1'] == "#d71b32"
+
+
+def test_gradients():
+    from palette import GRADIENTS, contrast_text, gradient_stops, solid
+    assert gradient_stops(GRADIENTS["Navy Gradient"]) == ("#045EA8", "#022E67")
+    assert gradient_stops("#285DA3") is None
+    assert solid(GRADIENTS["Highlight Blue Gradient"]) == "#59C8FF" and solid("#285DA3") == "#285DA3"
+    # The style sheet's "proper contrast": White on navy and red, WI Navy on Highlight Blue
+    assert [contrast_text(g) for g in GRADIENTS.values()] == ["#FFFFFF", "#022E67", "#FFFFFF"]
+    assert contrast_text("#FFD633") == "#022E67" and contrast_text("#285DA3") == "#FFFFFF"
+
+
+def test_gradients_never_snap_targets():
+    from palette import BAR_PALETTE
+    assert nearest_color("#045EA8", BAR_PALETTE)[0] == "Blue"
+
+
+def test_white_bars_from_older_projects_snap_to_gray():
+    from palette import CHART_PALETTE
+    settings = {'last_c1': "#FFFFFF"}
+    assert snap_settings(settings, {'last_c1': CHART_PALETTE}) == ["#FFFFFF → Gray"] and settings['last_c1'] == "#A3BCC6"

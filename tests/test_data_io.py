@@ -167,3 +167,32 @@ def test_range_bars_columns():
         {"Label": "year", "Start": "spring_date", "End": "fall_date"}  # IEM #10
     df, notes, _ = load("Season\tFirst\tLast\n2023-24\t12-Nov\t3-Apr\n2024-25\t28-Nov\t15-Mar\n", "Range Bars")
     assert df["Label"].tolist() == ["2023-24", "2024-25"] and "values read as dates" in notes
+
+
+XMACIS_RANKED = """Rank, Year, HighestMaxTemperature, MissingCount
+-, 1878, 94, 181
+-, 1879, 96, 0
+-, 1880, 97, 0
+"""
+
+
+@pytest.mark.parametrize("text", [
+    XMACIS_RANKED,  # xmACIS CSV: a Rank column of dashes comes first
+    "-\t1878\t94\t181\n-\t1879\t96\t0\n-\t1880\t97\t0\n",  # Table copied without its headers
+    "Rank\tYear\tHighest\tDays\n1\t1878\t94\t181\n2\t1879\t96\t0\n3\t1880\t97\t0\n",  # Ranks as numbers
+])
+def test_rank_column_is_left_out(text):
+    raw = dio.parse_pasted(text)
+    mapped, ignored = dio.map_columns(raw, "Year Ranking")
+    df, _ = dio.normalize(mapped, "Year Ranking")
+    assert df["Year"].tolist() == ["1878", "1879", "1880"] and df["Value"].tolist() == [94.0, 96.0, 97.0]
+    assert ignored[0] in ("Rank", "Column 1")
+    basic, _ = dio.normalize(dio.map_columns(raw, "Basic")[0], "Basic")
+    assert basic["Label"].tolist() == ["1878", "1879", "1880"]  # The year is the label, not the rank
+
+
+def test_rank_column_kept_when_nothing_else_would_be_left():
+    three = pd.DataFrame({"Rank": ["1", "2"], "Year": ["1990", "1991"], "Value": ["5", "6"]})
+    assert dio.drop_rank_columns(three)[1] == ["Rank"]
+    two = pd.DataFrame({"Rank": ["1", "2"], "Value": ["5", "6"]})
+    assert dio.drop_rank_columns(two)[1] == []  # Dropping it would leave one column

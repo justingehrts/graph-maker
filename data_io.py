@@ -33,8 +33,8 @@ DESCRIPTIONS = {
     "Line": "Open-ended line chart: any labels with one or two series of values.",
     "Running Total vs Normal": "Season-to-date rain or snow against normal, with the range and extremes of all years "
                                "(like IEM autoplot #172).",
-    "Record & Normal Band": "Daily highs and lows over the normal and record ranges, with new records marked "
-                            "(like IEM autoplot #113).",
+    "Record & Normal Band": "Daily climatology: each day's highs and lows over the normal and record ranges, with "
+                            "new records marked (like IEM autoplot #113).",
     "Year Ranking": "Every year on record with one year highlighted and ranked (like IEM autoplots #107 / #189).",
     "Range Bars": "Floating bars from a start to an end, e.g. the growing season (last spring to first fall "
                   "freeze) each year (like IEM autoplot #10).",
@@ -324,12 +324,28 @@ def unique_names(names):
     return out
 
 
+RANK_HEADERS = {"rank", "rk"}
+PLACEHOLDER_CELLS = {"-", "–", "—"}
+
+
+def drop_rank_columns(raw):
+    """(table without its rank columns, their names). A rank column only numbers the rows (xmACIS's Rank, which
+    shows "-" when nothing is ranked), so it's never chart data: one headed Rank, or one that is only dashes
+    (pasted tables lose their headers). Kept when it would leave fewer than two columns."""
+    names = [c for c in raw.columns if _norm(c) in RANK_HEADERS
+             or (len(raw) and raw[c].astype(str).str.strip().isin(PLACEHOLDER_CELLS).all())]
+    if names and raw.shape[1] - len(names) >= 2:
+        return raw.drop(columns=names), names
+    return raw, []
+
+
 def map_columns(raw, key):
     """Pick the `key` layout's columns out of `raw`. Returns (df with layout columns, ignored source column names)."""
     raw = raw.set_axis(unique_names(raw.columns), axis=1)
+    raw, ranks = drop_rank_columns(raw)
     mapping = guess_mapping(raw.columns, key)
     out = pd.DataFrame({t: raw[src] for t, src in mapping.items()})
-    return out, [str(c) for c in raw.columns if c not in mapping.values()]
+    return out, [str(c) for c in ranks] + [str(c) for c in raw.columns if c not in mapping.values()]
 
 
 def _data_like(cell):

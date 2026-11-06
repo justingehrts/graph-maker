@@ -12,30 +12,45 @@ import matplotlib.font_manager as fm
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from matplotlib.colors import LinearSegmentedColormap
+from matplotlib.patches import Rectangle
 from matplotlib.ticker import FixedLocator, MaxNLocator
 
 from data_io import DATE_REF_YEAR, format_number, round_day
 from iem import ordinal, rank_of, record_counts
+from palette import PALETTE, contrast_text, gradient_stops, solid
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 GRID_STYLES = {"Solid": "-", "Dashed": "--", "Dotted": ":"}
 MARKERS = {"Circle": "o", "Square": "s", "Triangle": "^", "Diamond": "D"}
 MAX_Y_TICKS = 50
+STRIP_COLOR, STRIP_TEXT = PALETTE["WI Navy"], PALETTE["White"]  # The X axis label strip
 MAX_YEAR_LABELS = 25  # Year Ranking: label every year only up to this many bars
+
+
+# The style guide's three Proxima Nova weights, by what the text is: Extrabold for key data (value labels, call-outs),
+# Bold for labels (X axis names), Semibold for supporting information (Y axis numbers)
+FONT_FILES = {"data": "proximanova-extrabold.ttf", "label": "proximanova-bold.ttf", "support": "proximanova-semibold.ttf"}
+FALLBACK_WEIGHTS = {"data": "bold", "label": "bold", "support": "normal"}
+
+
+def _font_file(name):
+    """Path to a font file in the fonts folder; None if it's missing."""
+    path = os.path.join(HERE, "fonts", name)
+    return path if os.path.isfile(path) else None
 
 
 @lru_cache(maxsize=1)
 def load_fonts():
-    """Return (regular, bold, using_fallback). FontProperties doesn't check the file, so check it here."""
-    reg, bold = os.path.join(HERE, "ProximaNova-Regular.ttf"), os.path.join(HERE, "ProximaNova-Bold.ttf")
-    if os.path.isfile(reg) and os.path.isfile(bold):
-        return fm.FontProperties(fname=reg), fm.FontProperties(fname=bold), False
-    return fm.FontProperties(family='sans-serif'), fm.FontProperties(family='sans-serif', weight='bold'), True
+    """Return ({role: FontProperties}, using_fallback). FontProperties doesn't check the file, so check it here."""
+    paths = {role: _font_file(name) for role, name in FONT_FILES.items()}
+    if all(paths.values()):
+        return {role: fm.FontProperties(fname=p) for role, p in paths.items()}, False
+    return {role: fm.FontProperties(family='sans-serif', weight=w) for role, w in FALLBACK_WEIGHTS.items()}, True
 
 
-def _font(bold):
-    reg, b, _ = load_fonts()
-    return b if bold else reg
+def _font(role):
+    return load_fonts()[0][role]
 
 
 def y_limits(values, start_zero):
@@ -47,6 +62,16 @@ def y_limits(values, start_zero):
     top = hi + span * (0.25 if hi > 0 else 0.1)
     bottom = 0.0 if (start_zero and lo == 0) else lo - span * (0.25 if lo < 0 else 0.1)
     return bottom, top
+
+
+def _axis_range(lo, hi, s):
+    """The value axis range: the automatic one, with either end replaced by the Y minimum / maximum setting when set.
+    Ignored for dates (day numbers) and when the result wouldn't have a minimum below its maximum."""
+    if _is_dates(s):
+        return lo, hi
+    new_lo, new_hi = s.get('y_min'), s.get('y_max')
+    new_lo, new_hi = lo if new_lo is None else new_lo, hi if new_hi is None else new_hi
+    return (new_lo, new_hi) if new_lo < new_hi else (lo, hi)
 
 
 def nice_step(lo, hi, max_ticks=10):
@@ -93,7 +118,7 @@ def _new_figure(s):
 
 
 def _label_kw(s, txt_col):
-    return dict(color=txt_col, fontproperties=_font(s['value_bold']), fontsize=s['value_sz'])
+    return dict(color=txt_col, fontproperties=_font("data"), fontsize=s['value_sz'])
 
 
 def _style_y(ax, s, txt_col, y_lo, y_hi, axis="y"):
@@ -114,19 +139,119 @@ def _style_y(ax, s, txt_col, y_lo, y_hi, axis="y"):
     return y_step
 
 
-def _finish(fig, ax, s, txt_col, y_lo, y_hi, zero_line=True, horizontal=False):
+MIN_SHRINK = 0.6  # Category names are never shrunk below this fraction of the X label size
+_SEQUENCE_LABEL = re.compile(r"\s*[-+−$]?[\d.,]+[%°\"]?\s*")
+
+
+def _is_sequence_label(text):
+    """Years and plain numbers: labels that can be skipped (1990, 1992, …) without losing a name."""
+    return _year_of(text) is not None or bool(_SEQUENCE_LABEL.fullmatch(str(text)))
+
+
+def _label_extent(renderer, text, size, rot):
+    """Horizontal pixels a label takes up (all its lines, allowing for rotation)."""
+    fp = _font('label').copy()
+    fp.set_size(size)
+    measure = lambda t: renderer.get_text_width_height_descent(t, fp, False)
+    lines = str(text).split("\n")
+    width = max(measure(line)[0] for line in lines)
+    height = measure("Hg")[1] * 1.2 * len(lines)
+    angle = math.radians(rot)
+    if abs(math.sin(angle)) > 0.26:  # Tilted past about 15 degrees, neighbors only need their line height apart
+        return height / abs(math.sin(angle))
+    return width * abs(math.cos(angle)) + height * abs(math.sin(angle))
+
+
+def _wrap_label(renderer, text, size):
+    """The label on two lines, split after a space or "/" where the longer line is shortest (or unchanged)."""
+    text = str(text)
+    best = None
+    for m in re.finditer(r"[ /]", text):
+        first, second = text[:m.end()].rstrip(), text[m.end():].lstrip()
+        if first and second:
+            width = max(_label_extent(renderer, first, size, 0), _label_extent(renderer, second, size, 0))
+            if best is None or width < best[0]:
+                best = (width, f"{first}\n{second}")
+    return best[1] if best else text
+
+
+def _fit_labels(fig, ax, s, labels, keep, thin):
+    """Make the category labels of a vertical chart fit their slots; returns the font size to use for them.
+
+    A label too wide for its slot is wrapped onto two lines (unless labels are rotated). Names that still don't
+    fit are shrunk, down to MIN_SHRINK of the size; years and numbers are skipped evenly instead (and so are names
+    that can't fit even when shrunk), but only when `thin` (the X Axis Labels choice is Auto). Labels in `keep`
+    (highlighted bars) always stay.
+    """
+    renderer = fig.canvas.get_renderer()
+    n, size, rot = len(labels), s['x_sz'], s['x_rot']
+    shown = sorted({int(round(t)) for t in ax.get_xticks() if 0 <= round(t) < n and abs(t - round(t)) < 1e-6})
+    if not shown:
+        return size
+    lo, hi = ax.get_xlim()
+    axes_width = ax.get_window_extent(renderer).width
+    slot = axes_width / abs(hi - lo)
+    gaps = sorted(b - a for a, b in zip(shown, shown[1:]))
+    step = gaps[len(gaps) // 2] if gaps else 1
+    pad = size * 0.4 * fig.dpi / 72
+    texts = {i: str(labels[i]) for i in shown}
+    keep = {k for k in keep if 0 <= k < n}
+    if rot == 0:
+        texts = {i: _wrap_label(renderer, t, size) if _label_extent(renderer, t, size, rot) + pad > slot * step else t
+                 for i, t in texts.items()}
+
+    def collide(sz):
+        """Whether neighboring labels touch, with those at the ends nudged inside the axes (as the strip does)."""
+        boxes = []
+        for i in shown:
+            width = _label_extent(renderer, texts[i], sz, rot)
+            left = min(max((i - min(lo, hi)) * slot - width / 2, 0), max(axes_width - width, 0))
+            boxes.append((left, left + width))
+        return any(a[1] + pad > b[0] for a, b in zip(boxes, boxes[1:]))
+
+    names = not all(_is_sequence_label(labels[i]) for i in shown)
+    scale = 1.0
+    while collide(size * scale):
+        if names and scale > MIN_SHRINK:
+            scale = max(MIN_SHRINK, scale * 0.94)
+        elif thin and len(shown) > 1:
+            step *= 2  # Skip every other label
+            fewer = _make_room(set(shown[::2]), keep, step)
+            if fewer == shown:  # Only the labels that must stay are left
+                break
+            shown = fewer
+        else:
+            break
+    ax.set_xticks(shown)
+    ax.set_xticklabels([texts.get(i, str(labels[i])) for i in shown])
+    ax.set_xlim(lo, hi)
+    return size * scale
+
+
+def _finish(fig, ax, s, txt_col, y_lo, y_hi, zero_line=True, horizontal=False, fit_labels=None):
     """Fonts, spines, zero line and gridlines shared by every chart; returns PNG bytes.
 
     The "X axis label" settings style the category labels and the "Y axis value" settings the numbers, so on a
     horizontal chart (values along the bottom) they swap axes. Rotation applies to vertical charts only.
+    `fit_labels` ({labels, keep, thin}, for vertical charts with one slot per category) wraps, shrinks or skips
+    category labels that would overlap.
     """
-    ax.tick_params(axis='y' if horizontal else 'x', colors=txt_col, width=3, length=8, zorder=4)
-    values, categories = (ax.get_xticklabels(), ax.get_yticklabels()) if horizontal else (ax.get_yticklabels(), ax.get_xticklabels())
-    for tick in values:
-        tick.set_fontproperties(_font(s['y_bold'])); tick.set_fontsize(s['y_sz']); tick.set_color(txt_col)
-    for tick in categories:
-        tick.set_fontproperties(_font(s['x_bold'])); tick.set_fontsize(s['x_sz']); tick.set_color(txt_col)
-        if not horizontal: tick.set_rotation(s['x_rot'])
+    x_size = s['x_sz']
+
+    def style_ticks():
+        ax.tick_params(axis='y' if horizontal else 'x', colors=txt_col, width=3, length=8, zorder=4)
+        values, categories = (ax.get_xticklabels(), ax.get_yticklabels()) if horizontal else (ax.get_yticklabels(), ax.get_xticklabels())
+        for tick in values:
+            tick.set_fontproperties(_font('support')); tick.set_fontsize(s['y_sz']); tick.set_color(txt_col)
+        for tick in categories:
+            tick.set_fontproperties(_font('label')); tick.set_fontsize(x_size); tick.set_color(txt_col)
+            if not horizontal: tick.set_rotation(s['x_rot'])
+
+    style_ticks()
+    if fit_labels and not horizontal:
+        fig.tight_layout()  # The axes' final width decides how much room each label has
+        x_size = _fit_labels(fig, ax, s, **fit_labels)
+        style_ticks()
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
     for side in ['left', 'bottom']:
@@ -137,11 +262,38 @@ def _finish(fig, ax, s, txt_col, y_lo, y_hi, zero_line=True, horizontal=False):
         ax.grid(True, axis='x' if horizontal else 'y', color=s['grid_color'], alpha=s['grid_alpha'], linewidth=s['grid_width'],
                 linestyle=GRID_STYLES[s['grid_style']], zorder=1)
     ax.set_axisbelow(True)
+    band = s.get('x_label_band') and not horizontal
+    if band:  # White category labels centered in a WI Navy strip under the plot
+        pad_pt = x_size * 0.45
+        ax.tick_params(axis='x', which='both', length=0, pad=pad_pt, labelcolor=STRIP_TEXT)
+        ax.spines['bottom'].set_visible(False)
     fig.tight_layout()
+    if band:
+        _label_strip(fig, ax, pad_pt)
     buf = io.BytesIO()
     fig.savefig(buf, format="png", transparent=True)
     plt.close(fig)
     return buf.getvalue()
+
+
+def _label_strip(fig, ax, pad_pt):
+    """The WI Navy strip behind the X axis labels: as tall as the tallest label (rotated ones too) plus padding."""
+    renderer = fig.canvas.get_renderer()
+    lo, hi = sorted(ax.get_xlim())
+    shown = [t.label1 for t in ax.xaxis.get_major_ticks()
+             if lo <= t.get_loc() <= hi and t.label1.get_visible() and t.label1.get_text()]
+    pad_px = pad_pt * fig.dpi / 72
+    band_px = max((t.get_window_extent(renderer).height for t in shown), default=0) + 2 * pad_px
+    if ax.get_window_extent(renderer).y0 < band_px + 4:  # Make room at the bottom of the image
+        fig.subplots_adjust(bottom=(band_px + 4) / (fig.get_figheight() * fig.dpi))
+    box = ax.get_window_extent(renderer)
+    for t in shown:  # A label at the very end of the axis (e.g. "Jan" on a date axis) moves inside the strip
+        ext = t.get_window_extent(renderer)
+        if ext.x0 < box.x0: t.set_horizontalalignment('left')
+        elif ext.x1 > box.x1: t.set_horizontalalignment('right')
+    frac = band_px / box.height
+    ax.add_patch(Rectangle((0, -frac), 1, frac, transform=ax.transAxes, clip_on=False, color=STRIP_COLOR,
+                           linewidth=0, zorder=0.2))
 
 
 def _date_axis(ax, dates, s):
@@ -179,6 +331,60 @@ def _categories(ax, labels, shown, horizontal):
         ax.set_xticks(shown)
         ax.set_xticklabels([labels[i] for i in shown])
         if n: ax.set_xlim(-0.6, n - 0.4)
+
+
+def _paint_gradients(ax, patches, colors, horizontal):
+    """Fill bars whose color is a gradient, from its first color at the bar's value end to its second at the base.
+
+    Bars are drawn with solid colors first; a gradient image clipped to each bar then covers it.
+    """
+    ramp = np.linspace(0, 1, 256)
+    for p, c in zip(patches, colors):
+        stops = gradient_stops(c)
+        x0, y0, w, h = p.get_x(), p.get_y(), p.get_width(), p.get_height()
+        if not stops or not all(np.isfinite([x0, y0, w, h])) or w == 0 or h == 0: continue
+        # Base (y0 or x0) to value end (y0 + h or x0 + w); flipped extents handle bars below zero
+        img = ramp[None, :] if horizontal else ramp[:, None]
+        im = ax.imshow(img, cmap=LinearSegmentedColormap.from_list("bar", [stops[1], stops[0]]), aspect="auto",
+                       origin="lower", extent=(x0, x0 + w, y0, y0 + h), interpolation="bilinear",
+                       zorder=p.get_zorder())
+        im.set_clip_path(p)
+
+
+def _bar(ax, horizontal, pos, length, colors, thick, base=None, zorder=2):
+    """Bars (vertical or horizontal) in palette colors or gradients; returns the BarContainer."""
+    kw = dict(color=[solid(c) for c in colors], zorder=zorder)
+    if horizontal:
+        bars = ax.barh(pos, length, height=thick, left=base, **kw)
+    else:
+        bars = ax.bar(pos, length, width=thick, bottom=base, **kw)
+    _paint_gradients(ax, bars.patches, colors, horizontal)
+    return bars
+
+
+def _bar_labels(ax, patches, texts, colors, s, txt_col, horizontal, span):
+    """Value labels past each bar's end, or inside it near the end ("Inside" position) in White or WI Navy,
+    whichever reads better on the bar. Bars too short for their label get it past the end instead."""
+    axis_px = (s['width'] if horizontal else s['height']) * 0.8  # Rough length of the value axis in pixels
+    per_px = span / axis_px
+    for p, text, c in zip(patches, texts, colors):
+        if horizontal:
+            pos, start, length = p.get_y() + p.get_height() / 2, p.get_x(), p.get_width()
+            text_px = len(text) * s['value_sz'] * 0.62 * 100 / 72
+        else:
+            pos, start, length = p.get_x() + p.get_width() / 2, p.get_y(), p.get_height()
+            text_px = s['value_sz'] * 1.2 * 100 / 72
+        if not np.isfinite(length): continue
+        end, sign = start + length, 1 if length >= 0 else -1
+        pad = per_px * 10
+        inside = s.get('value_pos') == "Inside" and abs(length) >= text_px * per_px + 2 * pad
+        v = end - sign * pad if inside else end + sign * span * 0.02
+        out = sign if not inside else -sign  # Which way the text runs from its anchor
+        kw = dict(zorder=5, **_label_kw(s, contrast_text(c) if inside else txt_col))
+        if horizontal:
+            ax.text(v, pos, text, ha='left' if out > 0 else 'right', va='center', **kw)
+        else:
+            ax.text(pos, v, text, ha='center', va='bottom' if out > 0 else 'top', **kw)
 
 
 def _end_label(ax, pos, v, text, s, txt_col, horizontal, pad):
@@ -247,26 +453,28 @@ def render_basic(df, s, txt_col):
 
     # Highlight applies to series 1 at the chosen index
     c1 = [s['last_c1']] * len(v1)
-    hl = s['highlight_idx'] if s['highlight_idx'] != "None" and s['highlight_idx'] < len(c1) else None
-    if hl is not None:
-        c1[hl] = s['highlight_color']
+    marked = sorted({i for i in s['highlight_idxs'] if isinstance(i, int) and 0 <= i < len(c1)})
+    for i in marked:
+        c1[i] = s['highlight_color']
 
-    y_lo, y_hi = y_limits(v1 + v2, _start_zero(s))
+    y_lo, y_hi = _axis_range(*y_limits(v1 + v2, _start_zero(s)), s)
     horizontal = s['chart_type'] == "Bar" and s['bar_orient'] == "Horizontal"
     if s['chart_type'] == "Bar":
         width_val = max(0.1, 0.8 - s['bar_gap'])  # Hard floor applied
-        draw = ax.barh if horizontal else ax.bar
-        size = "height" if horizontal else "width"
+        c2 = [s['last_c2']] * len(v2)
         if v2:
-            bars = [draw([i - width_val/4 for i in x], v1, **{size: width_val/2}, color=c1, zorder=2),
-                    draw([i + width_val/4 for i in x], v2, **{size: width_val/2}, color=s['last_c2'], zorder=2)]
+            bars = [(_bar(ax, horizontal, [i - width_val/4 for i in x], v1, c1, width_val/2), c1),
+                    (_bar(ax, horizontal, [i + width_val/4 for i in x], v2, c2, width_val/2), c2)]
         else:
-            bars = [draw(x, v1, **{size: width_val}, color=c1, zorder=2)]
+            bars = [(_bar(ax, horizontal, x, v1, c1, width_val), c1)]
         if s['show_values']:
-            for r in bars: ax.bar_label(r, labels=[format_number(v, s) for v in r.datavalues], padding=5, **label_kw)
+            for r, colors in bars:
+                _bar_labels(ax, r.patches, [format_number(v, s) for v in r.datavalues], colors, s, txt_col,
+                            horizontal, y_hi - y_lo)
     else:
         m_sym = MARKERS[s['marker_symbol']]
-        series = [(v1, s['last_c1'], c1)] + ([(v2, s['last_c2'], [s['last_c2']] * len(v2))] if v2 else [])
+        series = [(v1, solid(s['last_c1']), [solid(c) for c in c1])] + (
+            [(v2, solid(s['last_c2']), [solid(s['last_c2'])] * len(v2))] if v2 else [])
         for vals, line_color, marker_colors in series:
             ax.plot(x, vals, color=line_color, linewidth=s['line_width'], zorder=2)
             ax.scatter(x, vals, color=marker_colors, s=s['marker_size']**2, marker=m_sym, zorder=3)
@@ -277,9 +485,10 @@ def render_basic(df, s, txt_col):
                     ax.text(i, v + offset if v >= 0 else v - offset, format_number(v, s), ha='center',
                             va='bottom' if v >= 0 else 'top', zorder=5, **label_kw)
 
-    _categories(ax, labels, label_positions(labels, s, keep=[hl]), horizontal)
+    _categories(ax, labels, label_positions(labels, s, keep=marked), horizontal)
     y_step = _style_y(ax, s, txt_col, y_lo, y_hi, axis="x" if horizontal else "y")
-    return _finish(fig, ax, s, txt_col, y_lo, y_hi, horizontal=horizontal), y_step
+    fit = dict(labels=labels, keep=set(marked), thin=s['x_label_every'] == "Auto")
+    return _finish(fig, ax, s, txt_col, y_lo, y_hi, horizontal=horizontal, fit_labels=fit), y_step
 
 
 # --- Running total vs normal (IEM autoplot #172 style) ---
@@ -326,7 +535,7 @@ def render_running_total(df, s, txt_col):
         ax.fill_between(dates, obs, norm, where=both & (obs < norm), interpolate=True, color=s['rt_deficit_color'],
                         alpha=s['rt_fill_alpha'], linewidth=0, zorder=2)
     ax.plot(dates, obs, color=s['rt_obs_color'], linewidth=lw, zorder=4, solid_capstyle="round")
-    y_lo, y_hi = y_limits(values, s['y_start_zero'])
+    y_lo, y_hi = _axis_range(*y_limits(values, s['y_start_zero']), s)
     if s['rt_callout'] and obs.last_valid_index() is not None:
         i = obs.last_valid_index()
         dep = obs[i] - norm[i]
@@ -387,7 +596,7 @@ def render_record_band(df, s, txt_col):
     values = d[["Actual High", "Actual Low", "Normal High", "Normal Low", "Record High", "Record Low"]].stack().tolist()
     lo, hi = (min(values), max(values)) if values else (0.0, 100.0)
     pad = (hi - lo or 10) * 0.05
-    y_lo, y_hi = lo - pad, hi + pad * (3 if s['rb_callout'] else 1)  # Snug, like IEM; room for the call-out
+    y_lo, y_hi = _axis_range(lo - pad, hi + pad * (3 if s['rb_callout'] else 1), s)  # Snug, like IEM; room for the call-out
     _date_axis(ax, x, s)
     y_step = _style_y(ax, s, txt_col, y_lo, y_hi)
     return _finish(fig, ax, s, txt_col, y_lo, y_hi, zero_line=False), y_step
@@ -442,16 +651,16 @@ def render_year_ranking(df, s, txt_col):
     vals = d["Value"].tolist()
     is_hl = (d["Year"] == hl).tolist()
     colors = [s['yr_hl_color'] if h else s['yr_color'] for h in is_hl]
+    bars = None
     if s['yr_style'] == "Dots":
-        ax.scatter(*((vals, x) if horizontal else (x, vals)), color=colors, s=s['marker_size'] ** 2, zorder=3)
+        ax.scatter(*((vals, x) if horizontal else (x, vals)), color=[solid(c) for c in colors],
+                   s=s['marker_size'] ** 2, zorder=3)
     elif s['yr_style'] == "Line":
-        ax.plot(x, vals, color=s['yr_color'], linewidth=max(1, s['line_width'] * 0.5), zorder=2.5)
-        ax.scatter(x, vals, color=colors, s=s['marker_size'] ** 2, zorder=3)
+        ax.plot(x, vals, color=solid(s['yr_color']), linewidth=max(1, s['line_width'] * 0.5), zorder=2.5)
+        ax.scatter(x, vals, color=[solid(c) for c in colors], s=s['marker_size'] ** 2, zorder=3)
     else:
-        thick = 0.8 if by_year or len(d) > 40 else 0.7
-        (ax.barh(x, vals, height=thick, color=colors, zorder=2) if horizontal
-         else ax.bar(x, vals, width=thick, color=colors, zorder=2))
-    y_lo, y_hi = y_limits(vals, _start_zero(s))
+        bars = _bar(ax, horizontal, x, vals, colors, 0.8 if by_year or len(d) > 40 else 0.7)
+    y_lo, y_hi = _axis_range(*y_limits(vals, _start_zero(s)), s)
     label_kw = _label_kw(s, txt_col)
     if s['yr_avg_line'] and len(full):
         avg = full["Value"].mean()
@@ -475,10 +684,13 @@ def render_year_ranking(df, s, txt_col):
                     xytext=(-6, -10), textcoords="offset points", ha="right", va="top", zorder=6, **label_kw)
     label_all = len(d) <= MAX_YEAR_LABELS
     if s['show_values']:
-        pad = (y_hi - y_lo) * 0.02
-        for xi, v, h in zip(x, vals, is_hl):
-            if label_all or h:
-                _end_label(ax, xi, v, format_number(v, s), s, txt_col, horizontal, pad)
+        shown = [i for i, h in enumerate(is_hl) if label_all or h]
+        if bars is not None:
+            _bar_labels(ax, [bars.patches[i] for i in shown], [format_number(vals[i], s) for i in shown],
+                        [colors[i] for i in shown], s, txt_col, horizontal, y_hi - y_lo)
+        else:
+            for i in shown:
+                _end_label(ax, x[i], vals[i], format_number(vals[i], s), s, txt_col, horizontal, (y_hi - y_lo) * 0.02)
     if s['yr_callout'] and hl in d["Year"].tolist():
         i = is_hl.index(True)
         text = rank_text(full, s, hl)
@@ -490,6 +702,7 @@ def render_year_ranking(df, s, txt_col):
                 _callout(ax, text, (x[i], vals[i]), s, txt_col,
                          offset=(0, 30 + (s['value_sz'] * 1.8 if s['show_values'] else 0)))
     mode = s.get('x_label_every', "Auto")
+    fit = None
     if numeric_years:
         # Years are the axis values here, so "every 5th" and "ending in 0 or 5" are the same thing
         ax.xaxis.set_major_locator(MaxNLocator(nbins=10, integer=True) if mode == "Auto"
@@ -500,8 +713,9 @@ def render_year_ranking(df, s, txt_col):
         shown = ([i for i in x if label_all or is_hl[i]] if mode == "Auto" and not by_year
                  else label_positions(d["Year"].tolist(), s, keep=keep))
         _categories(ax, d["Year"].tolist(), shown, horizontal)
+        fit = dict(labels=d["Year"].tolist(), keep=set(keep), thin=mode == "Auto")
     y_step = _style_y(ax, s, txt_col, y_lo, y_hi, axis="x" if horizontal else "y")
-    return _finish(fig, ax, s, txt_col, y_lo, y_hi, horizontal=horizontal), y_step
+    return _finish(fig, ax, s, txt_col, y_lo, y_hi, horizontal=horizontal, fit_labels=fit), y_step
 
 
 # --- Range bars (floating bars, e.g. growing season per year; IEM autoplot #10 style) ---
@@ -537,17 +751,13 @@ def render_range_bars(df, s, txt_col):
     colors = [s['rg_hl_color'] if l == hl else s['rg_color'] for l in d["Label"]]
     full = d["End"].notna()
     if full.any():
-        if horizontal:
-            ax.barh(d.index[full], d.loc[full, "End"] - d.loc[full, "Start"], left=d.loc[full, "Start"], height=0.7,
-                    color=[c for c, f in zip(colors, full) if f], zorder=2)
-        else:
-            ax.bar(d.index[full], d.loc[full, "End"] - d.loc[full, "Start"], bottom=d.loc[full, "Start"], width=0.7,
-                   color=[c for c, f in zip(colors, full) if f], zorder=2)
+        _bar(ax, horizontal, d.index[full], d.loc[full, "End"] - d.loc[full, "Start"],
+             [c for c, f in zip(colors, full) if f], 0.7, base=d.loc[full, "Start"])
     open_rows = ~full  # No end yet (e.g. this year's fall freeze hasn't happened): mark the start only
     if open_rows.any():
         pts = (d.loc[open_rows, "Start"], d.index[open_rows])
         ax.scatter(*(pts if horizontal else pts[::-1]), marker="|" if horizontal else "_", s=(s['marker_size'] * 2) ** 2,
-                   linewidths=4, color=[c for c, o in zip(colors, open_rows) if o], zorder=3)
+                   linewidths=4, color=[solid(c) for c, o in zip(colors, open_rows) if o], zorder=3)
     values = start + [e for e in end if pd.notna(e)]
     lo, hi = (min(values), max(values)) if values else (0.0, 10.0)
     span = (hi - lo) or 10.0
@@ -556,6 +766,7 @@ def render_range_bars(df, s, txt_col):
     y_lo = lo - span * (room if s['rg_labels'] == "Ends" else 0.04)
     y_hi = hi + span * room
     if _start_zero(s): y_lo = min(y_lo, 0.0)
+    y_lo, y_hi = _axis_range(y_lo, y_hi, s)
     pad = (y_hi - y_lo) * 0.01
     if s['rg_avg_lines'] and len(d):
         for avg in (np.nanmean(start), np.nanmean([e for e in end if pd.notna(e)] or [np.nan])):
@@ -584,10 +795,12 @@ def render_range_bars(df, s, txt_col):
                 _callout(ax, text, (end[i], i), s, txt_col, ha="left", va="center", offset=(12 + extra, 0))
             else:
                 _callout(ax, text, (i, end[i]), s, txt_col, offset=(0, 20 + (s['value_sz'] * 1.6 if extra else 0)))
-    _categories(ax, d["Label"].tolist(), label_positions(d["Label"].tolist(), s, keep=[d["Label"].tolist().index(hl)] if hl else []),
-                horizontal)
+    names = d["Label"].tolist()
+    keep = [names.index(hl)] if hl else []
+    _categories(ax, names, label_positions(names, s, keep=keep), horizontal)
     y_step = _style_y(ax, s, txt_col, y_lo, y_hi, axis="x" if horizontal else "y")
-    return _finish(fig, ax, s, txt_col, y_lo, y_hi, horizontal=horizontal, zero_line=not _is_dates(s)), y_step
+    fit = dict(labels=names, keep=set(keep), thin=s['x_label_every'] == "Auto")
+    return _finish(fig, ax, s, txt_col, y_lo, y_hi, horizontal=horizontal, zero_line=not _is_dates(s), fit_labels=fit), y_step
 
 
 RENDERERS = {"Bar": render_basic, "Line": render_basic, "Running Total vs Normal": render_running_total,

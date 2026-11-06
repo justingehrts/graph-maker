@@ -6,10 +6,11 @@ import re
 from calendar import month_name, monthrange
 from datetime import date, datetime, timedelta
 
+import acis
 import charts
 import data_io as dio
 import iem
-from palette import PALETTE, TEXT_COLORS, GRID_PALETTE, snap_settings
+from palette import BAR_PALETTE, CHART_PALETTE, GRADIENTS, TEXT_COLORS, GRID_PALETTE, snap_settings
 
 st.set_page_config(page_title="Max Graph Maker", page_icon="📊", layout="wide")
 
@@ -18,19 +19,19 @@ st.set_page_config(page_title="Max Graph Maker", page_icon="📊", layout="wide"
 state_defaults = {
     'last_c1': '#285DA3', 'last_c2': '#A3BCC6', 'show_v2': False,
     'chart_type': "Bar", 'width': 1920, 'height': 1080,
-    'text_choice': "White", 'x_sz': 28, 'y_sz': 28, 'y_step': 10.0, 'y_auto': True,
-    'bar_gap': 0.22, 'y_start_zero': True, 'x_bold': True, 'y_bold': True,
-    'show_values': False, 'value_sz': 24, 'value_bold': True,
-    'highlight_idx': "None", 'highlight_color': '#59C8FF',
+    'x_sz': 28, 'y_sz': 28, 'y_step': 10.0, 'y_auto': True,
+    'bar_gap': 0.22, 'y_start_zero': True, 'y_min': None, 'y_max': None,  # None: the axis range is automatic
+    'show_values': False, 'value_pos': "End", 'value_sz': 24,
+    'highlight_idxs': [], 'highlight_color': '#59C8FF',  # Rows of the table drawn in the highlight color
     'line_width': 8, 'marker_size': 15, 'marker_symbol': 'Circle',
-    'x_rot': 0, 'x_label_every': "Auto",
+    'x_rot': 0, 'x_label_every': "Auto", 'x_label_band': True,
     'value_kind': "Number",  # "Date": values are days of the year (e.g. last 80° day by year), shown as "Oct 18"
     'num_decimals': "Auto", 'num_prefix': "", 'num_suffix': "", 'num_thousands': False, 'axis_units': False,
-    'grid_show': True, 'grid_color': '#A3BCC6', 'grid_alpha': 0.3, 'grid_width': 0.8, 'grid_style': "Solid",
+    'grid_show': True, 'grid_color': '#022E67', 'grid_alpha': 0.6, 'grid_width': 0.8, 'grid_style': "Solid",
     'date_labels': "Auto",
-    # Bar and line colors come from the Weather Impact 2.0 palette (PALETTE); shaded bands keep IEM's colors for now
+    # Bar and line colors come from the Weather Impact 2.0 palette (CHART_PALETTE); shaded bands keep IEM's colors for now
     # Running Total vs Normal (IEM #172)
-    'rt_input': "Running totals", 'rt_obs_color': '#59C8FF', 'rt_norm_color': '#FFFFFF',
+    'rt_input': "Running totals", 'rt_obs_color': '#59C8FF', 'rt_norm_color': '#022E67',
     'rt_show_envelope': True, 'rt_env_color': '#D2B48C', 'rt_env_alpha': 1.0,
     'rt_show_extremes': True, 'rt_high_color': '#285DA3', 'rt_low_color': '#FF6B6B',
     'rt_show_fill': False, 'rt_surplus_color': '#2E9E4F', 'rt_deficit_color': '#B5651D', 'rt_fill_alpha': 0.35,
@@ -44,27 +45,32 @@ state_defaults = {
     # Year Ranking (IEM #107 / #189)
     'yr_order': "Sorted", 'yr_rank_dir': "Highest", 'yr_style': "Bars", 'yr_top_n': 0, 'yr_word': "highest",
     'yr_highlight': "", 'yr_color': '#285DA3', 'yr_hl_color': '#59C8FF', 'yr_avg_line': True,
-    'yr_avg_color': '#FFFFFF', 'yr_avg_label': False, 'yr_trend': False, 'yr_trend_color': '#FFD633',
+    'yr_avg_color': '#022E67', 'yr_avg_label': False, 'yr_trend': False, 'yr_trend_color': '#FFD633',
     'yr_callout': False, 'yr_orient': "Vertical",
     # Range Bars (floating bars, IEM #10 style)
     'rg_orient': "Horizontal", 'rg_color': '#2ECC71', 'rg_hl_color': '#59C8FF', 'rg_highlight': "",
-    'rg_labels': "None", 'rg_avg_lines': True, 'rg_avg_color': '#FFFFFF', 'rg_last_n': 30, 'rg_callout': False,
+    'rg_labels': "None", 'rg_avg_lines': True, 'rg_avg_color': '#022E67', 'rg_last_n': 30, 'rg_callout': False,
     'bar_orient': "Vertical",
 }
 
-# Station-data (IEM) panel choices; saved with projects so the data can be fetched again
+# Station-data panel choices; saved with projects so the data can be fetched again
 TODAY = date.today()
-RT_STARTS = {"Jan 1": (1, 1), "Jul 1": (7, 1), "Oct 1": (10, 1)}
+# Season start dates: calendar year, the meteorological seasons (Mar 1 spring, Jun 1 summer, Sep 1 fall, Dec 1 winter),
+# snow seasons (Jul 1) and water years (Oct 1). Each runs from its start through the latest data.
+RT_STARTS = {"Jan 1": (1, 1), "Mar 1": (3, 1), "Jun 1": (6, 1), "Jul 1": (7, 1), "Sep 1": (9, 1), "Oct 1": (10, 1),
+             "Dec 1": (12, 1)}
 SEASONS = {"Winter (Dec–Feb)": ((12, 1), (2, 28)), "Spring (Mar–May)": ((3, 1), (5, 31)),
            "Summer (Jun–Aug)": ((6, 1), (8, 31)), "Fall (Sep–Nov)": ((9, 1), (11, 30))}
 RB_MODES = ["Full year", "Month", "Date range"]
 YR_PERIODS = ["Year to date", "Full year", "Month", "Season", "Custom dates"]
 # "NCEI 1991–2020" always means NCEI's official normals (what the NWS climate report uses); never an approximation
 NORMAL_PERIODS = {"NCEI 1991–2020": "ncei", "Full record": None}
-IEM_FALLBACK_NOTE = "IEM 1991–2020 station averages (not official NCEI normals)"
+STATION_AVG_NOTE = "1991–2020 station averages (not official NCEI normals)"
+SOURCES = {"ACIS": "ACIS, the official NWS source", "IEM": "Iowa Environmental Mesonet (unofficial)"}
 MONTHS = list(month_name)[1:]
 iem_defaults = {
-    'iem_state': "OH", 'iem_station': "OHTCMH",  # Columbus Area, the home station
+    'data_source': "ACIS",  # ACIS: official NWS data (as xmACIS / NOWData); IEM is the fallback
+    'iem_state': "OH", 'iem_station': "CMHthr",  # Columbus Area, the home station
     'normal_period': "NCEI 1991–2020", 'normals_fallback': False,
     'rt_var': "Rain", 'rt_start': "Jan 1", 'rt_year': TODAY.year, 'rt_to_latest': True, 'rt_end': TODAY,
     'rt_extend': False,
@@ -94,17 +100,19 @@ if 'table_kinds' not in st.session_state:
 # Allowed values for every widget-bound setting; shared by the widgets and project loading
 LINE_COLOR_KEYS = ['last_c1', 'last_c2', 'highlight_color', 'rt_obs_color', 'rt_norm_color', 'rt_high_color', 'rt_low_color', 'rb_bar_color', 'rb_high_color', 'rb_low_color', 'rb_rec_high_line', 'rb_rec_low_line', 'rb_mark_color', 'yr_color', 'yr_hl_color', 'yr_avg_color', 'yr_trend_color', 'rg_color', 'rg_hl_color', 'rg_avg_color']
 # Which colors each restricted setting may use; other color settings (shaded bands) are free for now
-PALETTE_SETS = {**{k: PALETTE for k in LINE_COLOR_KEYS}, 'grid_color': GRID_PALETTE}
+BAR_COLOR_KEYS = ['last_c1', 'last_c2', 'highlight_color', 'yr_color', 'yr_hl_color', 'rg_color', 'rg_hl_color']  # Can be gradients
+PALETTE_SETS = {**{k: BAR_PALETTE if k in BAR_COLOR_KEYS else CHART_PALETTE for k in LINE_COLOR_KEYS}, 'grid_color': GRID_PALETTE}
 MARKER_SYMBOLS = list(charts.MARKERS)
 GRID_STYLES = charts.GRID_STYLES
-CHOICES = {'chart_type': dio.CHART_TYPES, 'text_choice': list(TEXT_COLORS), 'marker_symbol': MARKER_SYMBOLS,
+CHOICES = {'chart_type': dio.CHART_TYPES, 'marker_symbol': MARKER_SYMBOLS,
            'num_decimals': ["Auto", "0", "1", "2", "3"], 'grid_style': list(GRID_STYLES), 'value_kind': ["Number", "Date"],
            'date_labels': ["Auto", "Month names", "Month + day", "Day numbers"], 'x_label_every': ["Auto", *charts.X_LABEL_STEPS],
            'rt_input': ["Running totals", "Daily amounts"], 'rb_style': ["Lines", "Bars"],
            'rb_band_style': ["Layered", "Simple"], 'rb_mark_shape': ["Dot", "Star"],
            'yr_order': ["Sorted", "By year"], 'yr_rank_dir': ["Highest", "Lowest"], 'yr_style': ["Bars", "Dots", "Line"],
            'bar_orient': ["Vertical", "Horizontal"], 'yr_orient': ["Vertical", "Horizontal"],
-           'rg_orient': ["Horizontal", "Vertical"], 'rg_labels': ["None", "Ends", "Length"]}
+           'rg_orient': ["Horizontal", "Vertical"], 'rg_labels': ["None", "Ends", "Length"],
+           'value_pos': ["End", "Inside"]}
 RANGES = {
     'width': (100, 7680), 'height': (100, 7680), 'x_sz': (10, 100), 'y_sz': (10, 100),
     'value_sz': (5, 80), 'line_width': (1, 25), 'marker_size': (1, 50), 'x_rot': (-90, 90),
@@ -129,12 +137,15 @@ def sanitize_setting(key, val):
         return type(lo)(min(max(val, lo), hi))
     if key in TEXT_KEYS:
         return val if isinstance(val, str) and len(val) <= TEXT_KEYS[key] else None
+    if key in ('y_min', 'y_max'):  # Optional: None keeps the axis automatic
+        return float(val) if isinstance(val, (int, float)) and not isinstance(val, bool) and abs(val) <= 1e9 else None
     if key in PALETTE_SETS:
         return val.upper() if isinstance(val, str) and val.upper() in PALETTE_SETS[key].values() else None
     if key in COLOR_KEYS:
         return val if isinstance(val, str) and re.fullmatch(r'#[0-9A-Fa-f]{6}', val) else None
-    if key == 'highlight_idx':
-        return val if val == "None" or (isinstance(val, int) and not isinstance(val, bool) and val >= 0) else None
+    if key == 'highlight_idxs':
+        ok = isinstance(val, list) and all(isinstance(i, int) and not isinstance(i, bool) and i >= 0 for i in val)
+        return sorted(set(val))[:500] if ok else None
     if isinstance(state_defaults.get(key), bool):
         return val if isinstance(val, bool) else None
     return None
@@ -143,17 +154,27 @@ def active_key():
     return dio.schema_key(st.session_state.chart_type)
 
 # --- 2. CACHED DATA ACCESS ---
-@st.cache_data(ttl=24 * 3600, show_spinner="Loading station list from IEM…")
-def load_stations(state):
-    return iem.fetch_stations(state)
+@st.cache_data(ttl=24 * 3600, show_spinner="Loading the station list…")
+def load_stations(state, source="ACIS"):
+    return acis.fetch_stations(state) if source == "ACIS" else iem.fetch_stations(state)
 
-@st.cache_data(ttl=6 * 3600, show_spinner="Downloading the station's daily history from IEM…")
-def load_daily(station, state):
-    return iem.fetch_daily(station, state)
+@st.cache_data(ttl=6 * 3600, show_spinner="Downloading the station's daily history…")
+def load_daily(station, state, source="ACIS"):
+    return acis.fetch_daily(station) if source == "ACIS" else iem.fetch_daily(station, state)
 
-@st.cache_data(ttl=24 * 3600, show_spinner="Getting the official NCEI 1991–2020 normals from IEM…")
-def load_ncei(station, state, ncei_id):
-    return iem.fetch_ncei_normals(station, state, ncei_id)
+@st.cache_data(ttl=24 * 3600, show_spinner="Getting the official NCEI 1991–2020 normals…")
+def load_ncei(station, state, ncei_id, source="ACIS"):
+    return acis.fetch_normals(station) if source == "ACIS" else iem.fetch_ncei_normals(station, state, ncei_id)
+
+def switch_source(source):
+    """Change the station data source, keeping a threaded city record (ACIS CMHthr is IEM's OHTCMH)."""
+    ss = st.session_state
+    sid = ss.iem_station or ""
+    if source == "IEM" and sid.endswith("thr"):
+        ss.iem_station = f"{ss.iem_state}T{sid[:-3].upper()}"
+    elif source == "ACIS":
+        ss.iem_station = acis.from_iem_id(sid) or sid
+    ss.data_source = source
 
 @st.cache_data(ttl=6 * 3600, show_spinner="Getting the autoplot data from IEM…")
 def load_autoplot(csv_url):
@@ -279,15 +300,20 @@ def handle_json():
         settings['yr_order'], settings['yr_rank_dir'] = "Sorted", old_order
     if 'y_step' in settings and 'y_auto' not in settings:
         settings['y_auto'] = False  # Older projects chose their Y interval by hand
+    old_highlight = settings.pop('highlight_idx', None)  # Earlier projects highlighted one row ("None" or its number)
+    if 'highlight_idxs' not in settings and isinstance(old_highlight, int) and not isinstance(old_highlight, bool):
+        settings['highlight_idxs'] = [old_highlight]
     snapped = snap_settings(settings, PALETTE_SETS)  # Older projects: off-palette colors snap to the closest
     if snapped:
         st.toast("Colors outside the Weather Impact 2.0 palette were changed to the closest palette color: "
                  + ", ".join(snapped))
     # Only load known keys with valid values; anything else keeps its current setting
+    for k in ('y_min', 'y_max'):
+        settings.setdefault(k, None)  # A fixed axis range belongs to the project: older ones are automatic
     for k, v in settings.items():
         if k not in state_defaults: continue
         safe_val = sanitize_setting(k, v)
-        if safe_val is not None: st.session_state[k] = safe_val
+        if safe_val is not None or k in ('y_min', 'y_max'): st.session_state[k] = safe_val
     for k, v in (p.get('iem_query') or {}).items():
         if k == 'normal_period' and v == "1991–2020":
             v = "NCEI 1991–2020"  # Earlier versions' 1991–2020 setting; it now always means the official normals
@@ -296,8 +322,17 @@ def handle_json():
         elif k in ('iem_state', 'normal_period', 'rt_var', 'rt_start', 'rb_mode', 'rb_month', 'yr_var', 'yr_period',
                  'yr_month', 'yr_season') and isinstance(v, str) and v in iem_choices(k):
             st.session_state[k] = v
-        elif k == 'iem_station' and isinstance(v, str) and re.fullmatch(r"[A-Z0-9]{3,10}", v):
+        elif k == 'data_source' and v in SOURCES:
             st.session_state[k] = v
+        elif k == 'iem_station' and isinstance(v, str) and re.fullmatch(r"[A-Za-z0-9]{3,12}", v):
+            st.session_state[k] = v
+    if 'data_source' not in (p.get('iem_query') or {}) and (p.get('iem_query') or {}).get('iem_station'):
+        # Earlier projects saved IEM station ids; ACIS has the same threaded city records under its own ids
+        old = st.session_state.iem_station
+        st.session_state.data_source = "ACIS"
+        st.session_state.iem_station = acis.from_iem_id(old) or iem_defaults['iem_station']
+        if not acis.from_iem_id(old):
+            st.toast(f"Station data now comes from ACIS; pick the station again (the project's was IEM's {old}).")
     kinds = p.get('table_kinds') if isinstance(p.get('table_kinds'), dict) else {}
     st.session_state.table_kinds = {k: v for k, v in kinds.items() if k in dio.SCHEMAS and v in CHOICES['value_kind']}
     st.session_state.table_kinds.setdefault(active_key(), st.session_state.value_kind)
@@ -336,30 +371,32 @@ def unit_defaults(kind):
     fmt = {"precip": ('"', "2"), "snow": ('"', "1"), "temp": ("°", "0")}[kind]
     st.session_state.num_suffix, st.session_state.num_decimals = fmt
 
-def build_from_iem(daily, station_label, ncei_id="", use_iem_normals=False):
+def build_from_iem(daily, station_label, ncei_id="", use_station_avgs=False):
     """Compute the active preset's table from the station's daily record.
 
     With "NCEI 1991–2020" chosen, the official NCEI normals are required. If they can't be had, nothing is built
-    and the problem is shown with an offer to use IEM's 1991–2020 station averages (`use_iem_normals`) instead.
+    and the problem is shown with an offer to use the station's own 1991–2020 averages (`use_station_avgs`).
     """
     ss = st.session_state
     ct = ss.chart_type
     ss.normals_problem = None
     ncei, normal_years, notes_extra = None, None, []
     normals = "full-record averages"
+    src = ss.data_source if ss.data_source == "ACIS" else "IEM (unofficial)"
     if ct != "Year Ranking" and NORMAL_PERIODS[ss.normal_period] == "ncei":
-        if use_iem_normals:
-            normal_years, normals = (1991, 2020), IEM_FALLBACK_NOTE
-            notes_extra = ["using IEM station averages, not official NCEI normals"]
+        if use_station_avgs:
+            normal_years, normals = (1991, 2020), STATION_AVG_NOTE
+            notes_extra = ["using station averages, not official NCEI normals"]
             ss.normals_fallback = True
         else:
             try:
-                ncei = load_ncei(ss.iem_station, ss.iem_state, ncei_id)
+                ncei = load_ncei(ss.iem_station, ss.iem_state, ncei_id, ss.data_source)
             except iem.NormalsUnavailable as e:
                 # Remember which request failed so the offer only shows for it
                 ss.normals_problem = (ss.iem_station, ct, str(e))
                 return
-            normals = f"NCEI 1991–2020 normals ({ncei.attrs.get('ncei_id', ncei_id)}, via IEM)"
+            normals = ("NCEI 1991–2020 normals (ACIS)" if ss.data_source == "ACIS"
+                       else f"NCEI 1991–2020 normals ({ncei.attrs.get('ncei_id', ncei_id)}, via IEM)")
             ss.normals_fallback = False
     span = f"{daily.index.min().year}–{daily.index.max().year}"
     try:
@@ -371,7 +408,7 @@ def build_from_iem(daily, station_label, ncei_id="", use_iem_normals=False):
             unit_defaults(var)
             ss.y_start_zero = True
             notes = [f"{info['missing_days']} missing days counted as 0"] if info['missing_days'] else []
-            note = f"IEM · {station_label} · {ss.rt_var.lower()} {info['season']} · {normals}"
+            note = f"{src} · {station_label} · {ss.rt_var.lower()} {info['season']} · {normals}"
             if info['highest']:
                 unit = ss.num_suffix
                 word = ("wettest", "driest") if var == "precip" else ("snowiest", "least snowy")
@@ -396,7 +433,7 @@ def build_from_iem(daily, station_label, ncei_id="", use_iem_normals=False):
             missing = int(df.loc[df["Date"] <= daily.index.max(), ["Actual High", "Actual Low"]].isna().any(axis=1).sum())
             notes = [f"{missing} days with missing temperatures"] if missing else []
             shown = "–".join(sorted({str(start.year), str(end.year)}))
-            note = f"IEM · {station_label} · records {span}, not counting {shown} · {normals}"
+            note = f"{src} · {station_label} · records {span}, not counting {shown} · {normals}"
         elif ct == "Range Bars":
             thr = float(ss.rg_threshold)
             # A low equal to the threshold counts (32° is a freeze), as the NWS defines it
@@ -408,7 +445,7 @@ def build_from_iem(daily, station_label, ncei_id="", use_iem_normals=False):
                      f"{ss.rg_max_missing} missing lows"] if skipped else []
             if len(df) and pd.isna(df["End"].iloc[-1]):
                 notes.append(f"{df['Label'].iloc[-1]} has no fall freeze yet")
-            note = f"IEM · {station_label} · growing season: last spring / first fall low ≤ {thr:g}° · {span}"
+            note = f"{src} · {station_label} · growing season: last spring / first fall low ≤ {thr:g}° · {span}"
         else:
             start_md, end_md, label = ranking_window(daily)
             df, info = iem.yearly_values(daily, ss.yr_var, start_md, end_md, int(ss.yr_max_missing))
@@ -423,7 +460,7 @@ def build_from_iem(daily, station_label, ncei_id="", use_iem_normals=False):
             skipped = info['skipped_years']
             notes = [f"left out {len(skipped)} year{'s' if len(skipped) != 1 else ''} with more than "
                      f"{ss.yr_max_missing} missing days"] if skipped else []
-            note = f"IEM · {station_label} · {ss.yr_var.lower()}, {label} · {span}"
+            note = f"{src} · {station_label} · {ss.yr_var.lower()}, {label} · {span}"
             if skipped and (df.empty or skipped[-1] > df["Year"].iloc[-1]):
                 # The most recent period is the one people usually want; never drop it silently
                 note += (f" · ⚠️ {skipped[-1]} is left out: more than {ss.yr_max_missing} days of missing data "
@@ -465,7 +502,7 @@ def apply_autoplot(num, title, raw, targets):
 
 # --- 4. CHART TYPE & DATA INPUT ---
 def chart_type_label(c):
-    return {"Running Total vs Normal": "★ Running Total", "Record & Normal Band": "★ Record Band",
+    return {"Running Total vs Normal": "★ Running Total", "Record & Normal Band": "★ Climo Band",
             "Year Ranking": "★ Year Ranking", "Range Bars": "★ Range Bars"}.get(c, c)
 
 ct = st.session_state.chart_type
@@ -473,32 +510,42 @@ key = active_key()
 is_preset = ct in dio.PRESET_TYPES
 # Chart type decides which table and options appear, so it sits above the data rather than in the styling sidebar
 st.radio("Chart Type", dio.CHART_TYPES, key='chart_type', format_func=chart_type_label, horizontal=True,
-         on_change=commit_table, help="★ Presets are climate charts that can pull station data from IEM.")
+         on_change=commit_table, help="★ Presets are climate charts that can pull official station data from ACIS.")
 st.caption(dio.DESCRIPTIONS[ct])
 st.subheader("Data Input")
 
 if is_preset:
-    with st.expander("🛰️ Station data from the Iowa Environmental Mesonet (IEM)", expanded=True):
+    source = st.session_state.data_source
+    with st.expander(f"🛰️ Station data from {SOURCES[source]}", expanded=True):
         cs, cn = st.columns([1, 3])
         cs.selectbox("State", iem.STATES, key='iem_state')
-        stations, daily, ncei_ids = None, None, {}
+        stations, daily, ncei_ids, failed = None, None, {}, None
         try:
-            stations = load_stations(st.session_state.iem_state)
+            stations = load_stations(st.session_state.iem_state, source)
         except iem.IEMError as e:
-            st.error(str(e))
+            failed = str(e)
         if stations is not None:
             ids = stations["id"].tolist()
             labels = dict(zip(stations["id"], stations["label"]))
-            ncei_ids = dict(zip(stations["id"], stations["ncei91"]))
+            if "ncei91" in stations: ncei_ids = dict(zip(stations["id"], stations["ncei91"]))
             if st.session_state.iem_station not in ids: st.session_state.iem_station = None
             cn.selectbox("Station", ids, key='iem_station', format_func=lambda i: labels.get(i, i),
                          placeholder="Choose a station (type to search)",
                          help="'Area' stations are the long-term threaded records for a city.")
         if st.session_state.iem_station:
             try:
-                daily = load_daily(st.session_state.iem_station, st.session_state.iem_state)
+                daily = load_daily(st.session_state.iem_station, st.session_state.iem_state, source)
             except iem.IEMError as e:
-                st.error(str(e))
+                failed = str(e)
+        if failed:
+            st.error(failed)
+        if source == "ACIS" and failed:
+            st.caption("The Iowa Environmental Mesonet has the same station records, but its numbers can differ "
+                       "slightly from the official NWS ones.")
+            st.button("Use IEM data instead", on_click=switch_source, args=("IEM",))
+        elif source == "IEM":
+            st.caption("⚠️ Using the Iowa Environmental Mesonet: numbers can differ slightly from the official NWS ones.")
+            st.button("Back to ACIS (official)", on_click=switch_source, args=("ACIS",))
         if daily is not None and not daily.empty:
             first, last = daily.index.min().date(), daily.index.max().date()
             station_label = f"{daily.attrs.get('station_name') or st.session_state.iem_station} ({st.session_state.iem_station})"
@@ -509,7 +556,8 @@ if is_preset:
                 c1, c2, c3 = st.columns(3)
                 c1.radio("Variable", ["Rain", "Snow"], key='rt_var', horizontal=True)
                 c2.selectbox("Season starts", list(RT_STARTS), key='rt_start',
-                             help="Snow seasons usually start Jul 1; water years Oct 1.")
+                             help="Snow seasons usually start Jul 1; water years Oct 1. Mar 1, Jun 1, Sep 1 and Dec 1 start the "
+                                  "meteorological seasons; pick a \"Through\" date to stop at the season's end.")
                 if ss.rt_year not in years: ss.rt_year = years[0]
                 start_month = RT_STARTS[ss.rt_start][0]
                 c3.selectbox("Season", years, key='rt_year', format_func=lambda y: iem.season_label(y, start_month))
@@ -556,10 +604,10 @@ if is_preset:
             st.button("📥 Use this station data", type="primary", on_click=build_from_iem, args=(daily, station_label, ncei_id))
             problem = ss.get('normals_problem')
             if problem and problem[:2] == (ss.iem_station, ct) and NORMAL_PERIODS[ss.normal_period] == "ncei":
-                st.warning(f"{problem[2]} The chart wasn't changed. You can use IEM's averages of this station's own "
+                st.warning(f"{problem[2]} The chart wasn't changed. You can use averages of this station's own "
                            "1991–2020 data instead (close to, but not, the official NCEI normals), try again, "
                            "or choose Full record.")
-                st.button("Use IEM 1991–2020 averages instead", on_click=build_from_iem,
+                st.button("Use 1991–2020 station averages instead", on_click=build_from_iem,
                           args=(daily, station_label, ncei_id, True))
 
 c1, c2 = st.columns(2)
@@ -620,30 +668,43 @@ st.session_state._current_table = (key, df_clean)
 # --- 5. UI / SIDEBAR ---
 def highlight_option_label(i, labels):
     """Show highlight choices by their label; add the row number when a label is blank or repeated."""
-    if i == "None": return "None"
     label = labels[i].strip()
     if not label: return f"Row {i + 1}"
     return f"{label} (row {i + 1})" if labels.count(labels[i]) > 1 else label
 
-def palette_chiclets(label, target, options=PALETTE, store_name=False):
+def horizontal_chart():
+    """Whether the current chart puts its categories on the left (so its values run along the bottom)."""
+    ss = st.session_state
+    return ((ss.chart_type == "Bar" and ss.bar_orient == "Horizontal")
+            or (ss.chart_type == "Year Ranking" and ss.yr_orient == "Horizontal" and ss.yr_style != "Line")
+            or (ss.chart_type == "Range Bars" and ss.rg_orient == "Horizontal"))
+
+def palette_chiclets(label, target, options=CHART_PALETTE):
     """Choose a color by clicking one of a row of small color squares (named on hover; a ring marks the selection).
 
-    Stores the hex in `target`, or the color's name when `store_name` (used for the text color).
+    Stores the hex in `target`. Gradients
+    ("#END-#BASE") get a second row, lined up under the solid colors.
     """
     current = st.session_state[target]
-    names = {(n if store_name else h): n for n, h in options.items()}
+    names = {h: n for n, h in {**BAR_PALETTE, **options}.items()}
     st.markdown(f"<div style='font-size:14px;margin-bottom:2px'>{label}: <b>{names.get(current, current)}</b></div>",
                 unsafe_allow_html=True)
     css = []
-    for i, (col, (name, hex_val)) in enumerate(zip(st.columns(len(options), gap="small"), options.items())):
+    solids = [item for item in options.items() if item[1] not in GRADIENTS.values()]
+    grads = [item for item in options.items() if item[1] in GRADIENTS.values()]
+    cells = list(st.columns(len(solids), gap="small"))
+    if grads: cells += st.columns(len(solids), gap="small")[:len(grads)]
+    for i, (col, (name, hex_val)) in enumerate(zip(cells, solids + grads)):
         btn_key = f"chip_{target}_{i}"
-        value = name if store_name else hex_val
-        active = current == value
-        col.button("\u00a0", key=btn_key, help=f"{name} {hex_val}" + (" (selected)" if active else ""), width="stretch",
-                   on_click=set_preset_color, args=(target, value))
+        active = current == hex_val
+        col.button("\u00a0", key=btn_key, help=f"{name} {hex_val.replace('-', ' to ')}" + (" (selected)" if active else ""),
+                   width="stretch",
+                   on_click=set_preset_color, args=(target, hex_val))
         ring = "box-shadow: 0 0 0 2px var(--st-background-color, #fff), 0 0 0 4px #FF4B4B;" if active else ""
         sel = f".st-key-{btn_key} button"
-        css.append(f"{sel}, {sel}:hover, {sel}:focus, {sel}:active {{ background: {hex_val} !important; "
+        ends = hex_val.split("-")  # A gradient's value end at the top, as on a vertical bar
+        fill = f"linear-gradient(to bottom, {ends[0]}, {ends[1]})" if len(ends) == 2 else hex_val
+        css.append(f"{sel}, {sel}:hover, {sel}:focus, {sel}:active {{ background: {fill} !important; "
                    f"border: 1px solid #6B7A8F; min-height: 26px; height: 26px; padding: 0; border-radius: 6px; {ring} }}"
                    f"{sel}:hover {{ border-color: #FF4B4B; }}")
     st.html(f"<style>{''.join(css)}</style>")
@@ -651,7 +712,7 @@ def palette_chiclets(label, target, options=PALETTE, store_name=False):
 # Widgets are bound to session state via `key`, so each change applies on the first try
 with st.sidebar:
     st.header("Graphic Config")
-    if charts.load_fonts()[2]: st.caption("⚠️ Proxima Nova font files not found; using the default sans-serif font.")
+    if charts.load_fonts()[1]: st.caption("⚠️ Proxima Nova font files not found; using the default sans-serif font.")
 
     with st.expander("📐 Canvas & Chart", expanded=True):
         cw, ch = st.columns(2)
@@ -739,8 +800,9 @@ with st.sidebar:
                 if st.session_state.yr_order == "Sorted":
                     st.number_input("Show top N years (0 = all)", *RANGES['yr_top_n'], key='yr_top_n',
                                     help="The highlighted year is always shown.")
-                palette_chiclets("Year color", 'yr_color')
-                palette_chiclets("Highlight color", 'yr_hl_color')
+                yr_options = BAR_PALETTE if st.session_state.yr_style == "Bars" else CHART_PALETTE
+                palette_chiclets("Year color", 'yr_color', yr_options)
+                palette_chiclets("Highlight color", 'yr_hl_color', yr_options)
                 st.checkbox("Average line", key='yr_avg_line')
                 if st.session_state.yr_avg_line:
                     palette_chiclets("Average color", 'yr_avg_color')
@@ -762,27 +824,27 @@ with st.sidebar:
                                 help="More than about 40 bars get too thin to read on air.")
                 st.radio("Labels on bars", CHOICES['rg_labels'], key='rg_labels', horizontal=True,
                          help='Ends: "Apr 15 · Oct 30". Length: "198 days" (or the difference for numbers).')
-                palette_chiclets("Bar color", 'rg_color')
-                palette_chiclets("Highlight color", 'rg_hl_color')
+                palette_chiclets("Bar color", 'rg_color', BAR_PALETTE)
+                palette_chiclets("Highlight color", 'rg_hl_color', BAR_PALETTE)
                 st.checkbox("Average start and end lines", key='rg_avg_lines')
                 if st.session_state.rg_avg_lines: palette_chiclets("Average line color", 'rg_avg_color')
                 st.checkbox("Call-out on chart (e.g. 198 days)", key='rg_callout')
 
     with st.expander("🎨 Colors", expanded=not is_preset):
-        palette_chiclets("Text and axes", 'text_choice', TEXT_COLORS, store_name=True)
-        st.caption("Weather Impact 2.0 palette only. Text and axes are White or WI Navy; data labels and call-outs "
-                   "follow them.")
+        st.caption("Weather Impact 2.0 palette only. Text, axes, data labels and call-outs are WI Navy for Max's "
+                   "white background.")
         if not is_preset:
-            palette_chiclets("Series 1", 'last_c1')
+            bar_options = BAR_PALETTE if ct == "Bar" else CHART_PALETTE  # Gradients are for bars only
+            palette_chiclets("Series 1", 'last_c1', bar_options)
             if st.session_state.show_v2:
-                palette_chiclets("Series 2", 'last_c2')
+                palette_chiclets("Series 2", 'last_c2', bar_options)
             st.divider()
             labels = df_clean["Label"].tolist()
-            h_opts = ["None"] + list(range(len(labels)))
-            if st.session_state.highlight_idx not in h_opts: st.session_state.highlight_idx = "None"
-            st.selectbox("Highlight Point", h_opts, key='highlight_idx', format_func=lambda i: highlight_option_label(i, labels),
-                         help="Draws one point (Series 1) in the highlight color.")
-            palette_chiclets("Highlight", 'highlight_color')
+            st.session_state.highlight_idxs = [i for i in st.session_state.highlight_idxs if i < len(labels)]
+            st.multiselect("Highlight Points", list(range(len(labels))), key='highlight_idxs',
+                           format_func=lambda i: highlight_option_label(i, labels), placeholder="None",
+                           help="Draws these points (Series 1) in the highlight color.")
+            palette_chiclets("Highlight", 'highlight_color', bar_options)
         else:
             st.caption("Chart colors for presets are in Preset Options.")
 
@@ -793,8 +855,12 @@ with st.sidebar:
             st.caption('Choose the labels on the bars under ★ Preset Options ("Labels on bars").')
         else:
             st.checkbox("Show Values on Chart", key='show_values')
+            if st.session_state.show_values and (ct == "Bar" or (ct == "Year Ranking" and st.session_state.yr_style == "Bars")):
+                st.radio("Label position", CHOICES['value_pos'], key='value_pos', horizontal=True,
+                         format_func=lambda k: {"End": "Past the end", "Inside": "Inside the bar"}[k],
+                         help="Inside labels are White or WI Navy, whichever reads better on the bar. A bar too short "
+                              "for its label gets it past the end.")
         st.slider("Data Label Font Size", *RANGES['value_sz'], key='value_sz')
-        st.checkbox("Data Labels Bold", key='value_bold')
         st.radio("Values are", CHOICES['value_kind'], key='value_kind', horizontal=True,
                  format_func=lambda k: {"Number": "Numbers", "Date": "Dates"}[k],
                  on_change=change_value_kind,
@@ -816,8 +882,17 @@ with st.sidebar:
             st.number_input("Y Interval", min_value=RANGES['y_step'][0], max_value=RANGES['y_step'][1], key='y_step')
         if ct != "Record & Normal Band":
             st.checkbox("Force Y Axis to Start at 0", key='y_start_zero')
+        if st.session_state.value_kind == "Number":
+            cmin, cmax = st.columns(2)
+            cmin.number_input("Y minimum", value=None, key='y_min', placeholder="Auto", format="%g",
+                              help="Fix the bottom of the value axis, e.g. 0. Leave blank for automatic.")
+            cmax.number_input("Y maximum", value=None, key='y_max', placeholder="Auto", format="%g",
+                              help="Fix the top of the value axis, e.g. 100 for a percent, so bars compare from "
+                                   "graphic to graphic. Leave blank for automatic.")
+            lo, hi = st.session_state.y_min, st.session_state.y_max
+            if lo is not None and hi is not None and lo >= hi:
+                st.caption("⚠️ The minimum must be below the maximum; using the automatic range.")
         st.slider("Y Axis Value Size", *RANGES['y_sz'], key='y_sz')
-        st.checkbox("Y Axis Values Bold", key='y_bold')
         if ct in dio.DATED_TYPES:
             st.selectbox("Date Labels", CHOICES['date_labels'], key='date_labels',
                          help="Auto uses month names for periods longer than about two months.")
@@ -827,8 +902,10 @@ with st.sidebar:
                               "(e.g. 1880, 1885, 1890); a highlighted bar always keeps its label. If labels "
                               "crowd, pick a wider spacing, a smaller X label size, or rotate them.")
         st.slider("X Axis Label Size", *RANGES['x_sz'], key='x_sz')
-        st.checkbox("X Axis Labels Bold", key='x_bold')
         st.slider("X Label Rotation (Degrees)", *RANGES['x_rot'], key='x_rot')
+        if not horizontal_chart():
+            st.checkbox("Navy strip behind X axis labels", key='x_label_band',
+                        help="White labels on a WI Navy strip under the chart, as on Weather Impact bar graphics.")
 
     with st.expander("▦ Gridlines"):
         st.checkbox("Show Gridlines", key='grid_show')
@@ -838,11 +915,10 @@ with st.sidebar:
             st.slider("Thickness", *RANGES['grid_width'], step=0.1, key='grid_width')
             st.selectbox("Style", list(GRID_STYLES), key='grid_style')
 
-    txt_col = TEXT_COLORS[st.session_state.text_choice]
+txt_col = TEXT_COLORS["WI Navy"]  # Max's backgrounds are white
 
-# --- 6. PREVIEW CONTRAST CSS ---
-preview_bg = "#262730" if txt_col == TEXT_COLORS["White"] else "white"
-st.markdown(f"""<style> [data-testid="stImage"] {{ background-color: {preview_bg}; border-radius: 10px; padding: 20px; }} </style>""", unsafe_allow_html=True)
+# --- 6. PREVIEW BACKGROUND ---
+st.markdown("""<style> [data-testid="stImage"] { background-color: white; border-radius: 10px; padding: 20px; } </style>""", unsafe_allow_html=True)
 
 # --- 7. PREVIEW & EXPORT ---
 settings = {k: st.session_state[k] for k in state_defaults}

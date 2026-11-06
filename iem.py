@@ -390,12 +390,27 @@ def autoplot_meta(num):
     return {"title": meta.get("title", f"Autoplot #{num}"), "data": bool(meta.get("data"))}
 
 
+def sday_labels(values):
+    """IEM's `sday` column (month and day as MMDD, e.g. 0901 for Sep 1) as day labels: the day of the month
+    ("1") when every day is in one month, as in autoplot #98, else month and day ("Sep 1"). Values that
+    aren't a calendar day are left as they are."""
+    text = pd.Series(values).astype(str).str.strip().str.zfill(4)
+    days = pd.to_datetime("2000" + text, format="%Y%m%d", errors="coerce")  # 2000 is a leap year: 0229 works
+    if days.isna().all():
+        return pd.Series(values)
+    one_month = days.dropna().dt.month.nunique() == 1
+    labels = days.dt.day.astype("Int64").astype(str) if one_month else days.dt.strftime("%b ") + days.dt.day.astype("Int64").astype(str)
+    return labels.where(days.notna(), pd.Series(values).astype(str))
+
+
 def fetch_autoplot_csv(csv_url):
     text = _get(csv_url).text
     try:
-        df = pd.read_csv(io.StringIO(text), comment="#")
+        df = pd.read_csv(io.StringIO(text), comment="#", dtype={"sday": str})  # Keep 0901's leading zero
     except Exception as e:
         raise IEMError("IEM didn't return a data table for that plot. Check the plot's options on the IEM page.") from e
     if df.empty or df.shape[1] < 2:
         raise IEMError("IEM returned an empty table for that plot.")
+    if "sday" in df.columns:
+        df["sday"] = sday_labels(df["sday"])
     return df
