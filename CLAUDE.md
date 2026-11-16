@@ -12,14 +12,16 @@ to log things he should see, instead of only mentioning them in chat.
   `curl -s "https://justin-project-manager.fly.dev/api/v1/items?repo=OWNER/NAME&open=1&kind=followup"`
 - **Log an item** (check the open list first; an identical open title is returned, not duplicated):
   ```
-  curl -s -X POST https://justin-project-manager.fly.dev/api/v1/items \
-    -H "Content-Type: application/json" \
-    -d '{"repo":"OWNER/NAME","kind":"todo","title":"…","notes":"…","due":"fri",
-         "session_url":"<this session's link>","file":"path/to/file.py","line":42}'
+  curl -s -X POST https://justin-project-manager.fly.dev/api/v1/items -H "Content-Type: application/json" -d '{"repo":"OWNER/NAME","kind":"todo","title":"…","notes":"…","session_url":"<this session's link>"}'
   ```
+  Optional fields: `due` (`"fri"`, `"2026-12-01"`), `priority`, `file`, `line`.
   Kinds: `todo` = something only Justin can do (a secret, an approval, a sign-up, a test on his
   phone) · `idea` = an improvement noticed but not asked for · `bug` = a problem spotted but not
   fixed · `followup` = work a later session should pick up. `due` and `priority` are optional.
+- **Command shape (so the repo's permission rules allow it):** one line each, the full
+  `https://justin-project-manager.fly.dev/api/v1...` address written out right after `curl -s`
+  (GET, quoted when it has `?`/`&`), `curl -s -X POST`, or `curl -s -X PATCH`. No variables for
+  the address, no line continuations, nothing chained with `&&` or `;`.
 - **Close or update your own items:** `PATCH /api/v1/items/ID` with `{"done": true}`, `{"status":
   "In progress"}`, or `{"notes_append": "…"}`. Only items sessions created can be changed; there is
   no delete.
