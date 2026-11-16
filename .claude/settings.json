@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s \"https://justin-project-manager.fly.dev/api/v1*)",
+      "Bash(curl -s https://justin-project-manager.fly.dev/api/v1*)",
+      "Bash(curl -s -X POST https://justin-project-manager.fly.dev/api/v1/items *)",
+      "Bash(curl -s -X PATCH https://justin-project-manager.fly.dev/api/v1/items/*)"
+    ]
+  }
+}
