@@ -9,6 +9,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.dates as mdates
 import matplotlib.font_manager as fm
+import matplotlib.patheffects as pe
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -31,6 +32,9 @@ MAX_YEAR_LABELS = 25  # Year Ranking: label every year only up to this many bars
 # Proxima Nova weights by what the text is: Extrabold for key data (value labels, call-outs), Semibold for both axes
 # (X axis names and Y axis numbers), matching the graphs made in Max
 FONT_FILES = {"data": "proximanova-extrabold.ttf", "label": "proximanova-semibold.ttf", "support": "proximanova-semibold.ttf"}
+# Axis text is Semibold with bold formatting added, as Max does it: an outline as thick as this fraction of the font
+# size thickens the strokes (sized so Semibold's stems match the Max graphics, a little under real Bold's)
+AXIS_BOLD = 0.02
 FALLBACK_WEIGHTS = {"data": "bold", "label": "bold", "support": "normal"}
 
 
@@ -270,6 +274,8 @@ def _finish(fig, ax, s, txt_col, y_lo, y_hi, zero_line=True, horizontal=False, f
     fig.tight_layout()
     if band:
         _label_strip(fig, ax, pad_pt)
+    for tick in ax.get_xticklabels() + ax.get_yticklabels():  # Bold formatting on the axis text
+        tick.set_path_effects([pe.withStroke(linewidth=AXIS_BOLD * tick.get_fontsize(), foreground=tick.get_color())])
     buf = io.BytesIO()
     fig.savefig(buf, format="png", transparent=True)
     plt.close(fig)

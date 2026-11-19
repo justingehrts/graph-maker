@@ -145,6 +145,18 @@ def test_chart_text_uses_the_weights_for_its_role(monkeypatch):
     assert {name(t) for t in ax.get_xticklabels()} == {"proximanova-semibold.ttf"}
 
 
+def test_axis_text_is_semibold_with_bold_formatting(monkeypatch):
+    """Axis text is the Semibold file with a bold outline added (as Max does it); data labels are not outlined."""
+    df = pd.DataFrame({"Label": ["Mon", "Tue"], "Value 1": [40, 80], "Value 2": [None, None]})
+    ax = drawn_axes(monkeypatch, "Bar", df, show_values=True)
+    ticks = [t for t in ax.get_xticklabels() + ax.get_yticklabels() if t.get_text()]
+    assert ticks and all(Path(t.get_fontproperties().get_file()).name == "proximanova-semibold.ttf" for t in ticks)
+    for t in ticks:
+        (effect,) = t.get_path_effects()
+        assert effect._gc["linewidth"] == pytest.approx(charts.AXIS_BOLD * t.get_fontsize())
+    assert not any(t.get_path_effects() for t in ax.texts)  # Data labels stay plain Extrabold
+
+
 def test_missing_fonts_fall_back(monkeypatch):
     monkeypatch.setattr(charts, "_font_file", lambda name: None)
     charts.load_fonts.cache_clear()
