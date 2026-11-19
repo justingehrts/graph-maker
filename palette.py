@@ -3,8 +3,11 @@ import re
 
 PALETTE = {"White": "#FFFFFF", "WI Navy": "#022E67", "Highlight Blue": "#59C8FF", "Breaking Red": "#D71B32",
            "Blue": "#285DA3", "Yellow": "#FFD633", "Green": "#2ECC71", "Coral": "#FF6B6B", "Gray": "#A3BCC6"}
-TEXT_COLORS = {"White": PALETTE["White"], "WI Navy": PALETTE["WI Navy"]}  # Axes, axis labels, data labels, call-outs
-GRID_PALETTE = {n: PALETTE[n] for n in ("White", "WI Navy", "Gray")}
+# Graphs always sit on white, so anything drawn straight onto the transparent canvas (axes, axis labels, data labels,
+# call-outs, gridlines) can never be White. White is only for text on a filled shape: inside a bar or on the label strip.
+TEXT_COLORS = {"WI Navy": PALETTE["WI Navy"]}
+GRID_PALETTE = {n: PALETTE[n] for n in ("WI Navy", "Gray")}
+ON_FILL_TEXT = {"White": PALETTE["White"], "WI Navy": PALETTE["WI Navy"]}  # Text on a bar or strip, by contrast
 # Bar gradients, stored as "#END-#BASE": the first color is at the bar's value end, the second at its base
 GRADIENTS = {"Navy Gradient": "#045EA8-#022E67", "Highlight Blue Gradient": "#59C8FF-#99DDFF",
              "Red Gradient": "#D71B32-#8D181F"}
@@ -36,7 +39,7 @@ def contrast_text(color):
     """White or WI Navy, whichever reads better on `color` (a gradient counts as the average of its two ends)."""
     lum = sum(map(_luminance, gradient_stops(color) or (color,))) / len(gradient_stops(color) or (color,))
     ratio = lambda t: (max(lum, _luminance(t)) + 0.05) / (min(lum, _luminance(t)) + 0.05)
-    return max(TEXT_COLORS.values(), key=ratio)
+    return max(ON_FILL_TEXT.values(), key=ratio)
 
 
 def nearest_color(hex_val, allowed):

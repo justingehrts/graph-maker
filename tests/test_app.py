@@ -389,7 +389,7 @@ def test_only_palette_colors_are_offered(chart):
     at = new(chart_type=chart)
     assert problems(at) == []
     assert {p.key for p in at.color_picker} <= BAND_PICKERS  # Shaded bands keep their pickers for now
-    assert not chips(at, "text_choice") and len(chips(at, "grid_color")) == 3  # Text is always WI Navy
+    assert not chips(at, "text_choice") and len(chips(at, "grid_color")) == 2  # Text is always WI Navy
     assert len(chips(at, "last_c1")) == {"Bar": len(PALETTE) + 3, "Line": len(PALETTE)}.get(chart, 0)  # Gradients for bars
     targets = {b.key[5:].rsplit("_", 1)[0] for b in at.button if b.key and b.key.startswith("chip_")}
     for t in targets:  # Every default is one of the colors offered for it
@@ -430,7 +430,7 @@ def test_label_strip_checkbox_for_vertical_charts_only():
 def test_white_is_not_a_bar_or_line_color():
     at = new()
     assert not [b for b in at.button if b.key and b.key.startswith("chip_last_c1_") and "#FFFFFF" in b.help]
-    assert [b for b in chips(at, "grid_color") if "#FFFFFF" in b.help]  # Gridlines keep White
+    assert not [b for b in chips(at, "grid_color") if "#FFFFFF" in b.help]  # Nor can gridlines be White
 
 
 def test_autoplot_98_days_as_labels(monkeypatch):
