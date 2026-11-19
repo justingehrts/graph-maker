@@ -125,11 +125,11 @@ def test_no_strip_when_off_or_horizontal(monkeypatch):
 
 
 def test_fonts_by_role():
-    """The style guide's weights: Extrabold for data, Bold for labels, Semibold for supporting numbers."""
+    """The style guide's weights: Extrabold for data, Semibold for both axes."""
     fonts, fallback = charts.load_fonts()
     assert fallback is False
     assert {r: Path(f.get_file()).name for r, f in fonts.items()} == {
-        "data": "proximanova-extrabold.ttf", "label": "proximanova-bold.ttf", "support": "proximanova-semibold.ttf"}
+        "data": "proximanova-extrabold.ttf", "label": "proximanova-semibold.ttf", "support": "proximanova-semibold.ttf"}
     assert charts._font_file("NoSuchFont.ttf") is None
 
 
@@ -138,10 +138,10 @@ def test_chart_text_uses_the_weights_for_its_role(monkeypatch):
     ax = drawn_axes(monkeypatch, "Bar", df, show_values=True)
     name = lambda t: Path(t.get_fontproperties().get_file()).name
     assert {name(t) for t in ax.texts} == {"proximanova-extrabold.ttf"}  # Value labels
-    assert {name(t) for t in ax.get_xticklabels()} == {"proximanova-bold.ttf"}  # Category names
+    assert {name(t) for t in ax.get_xticklabels()} == {"proximanova-semibold.ttf"}  # Category names
     assert {name(t) for t in ax.get_yticklabels()} == {"proximanova-semibold.ttf"}  # Numbers
     ax = drawn_axes(monkeypatch, "Bar", df, bar_orient="Horizontal")
-    assert {name(t) for t in ax.get_yticklabels()} == {"proximanova-bold.ttf"}
+    assert {name(t) for t in ax.get_yticklabels()} == {"proximanova-semibold.ttf"}
     assert {name(t) for t in ax.get_xticklabels()} == {"proximanova-semibold.ttf"}
 
 
