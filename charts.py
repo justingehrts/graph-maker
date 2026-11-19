@@ -28,9 +28,9 @@ STRIP_COLOR, STRIP_TEXT = PALETTE["WI Navy"], PALETTE["White"]  # The X axis lab
 MAX_YEAR_LABELS = 25  # Year Ranking: label every year only up to this many bars
 
 
-# Proxima Nova weights by what the text is: Extrabold for key data (value labels, call-outs), Semibold for both axes
+# Proxima Nova weights by what the text is: Extrabold for key data (value labels, call-outs), Bold for both axes
 # (X axis names and Y axis numbers), matching the graphs made in Max
-FONT_FILES = {"data": "proximanova-extrabold.ttf", "label": "proximanova-semibold.ttf", "support": "proximanova-semibold.ttf"}
+FONT_FILES = {"data": "proximanova-extrabold.ttf", "label": "proximanova-bold.ttf", "support": "proximanova-bold.ttf"}
 FALLBACK_WEIGHTS = {"data": "bold", "label": "bold", "support": "normal"}
 
 
