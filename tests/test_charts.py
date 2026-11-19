@@ -16,7 +16,7 @@ BASE = dict(ns["state_defaults"], width=640, height=360)
 
 
 def draw(ct, df, **kw):
-    png, step = charts.render(df, dict(BASE, chart_type=ct, **kw), "white")
+    png, step = charts.render(df, dict(BASE, chart_type=ct, **kw), "#022E67")
     assert png[:4] == b"\x89PNG" and step > 0
     return png
 
@@ -88,7 +88,7 @@ def test_gradient_bars_and_inside_labels(monkeypatch, orient):
     labels = {t.get_text(): t for t in ax.texts}
     assert labels["80"].get_color() == "#022E67"  # WI Navy on Highlight Blue
     assert labels["60"].get_color() == "#FFFFFF"  # White on navy
-    assert labels["2"].get_color() == "white"  # Too short: past the end, in the axis color
+    assert labels["2"].get_color() == "#022E67"  # Too short: past the end, in the axis color
     assert labels["80"].get_position()[1 if orient == "Vertical" else 0] < 80  # Inside the bar
 
 
@@ -121,7 +121,7 @@ def test_no_strip_when_off_or_horizontal(monkeypatch):
     df = dio.sample_data("Basic")
     assert not strips(drawn_axes(monkeypatch, "Bar", df, x_label_band=False))
     ax = drawn_axes(monkeypatch, "Bar", df, bar_orient="Horizontal")
-    assert not strips(ax) and all(t.get_color() == "white" for t in ax.get_yticklabels())
+    assert not strips(ax) and all(t.get_color() == "#022E67" for t in ax.get_yticklabels())
 
 
 def test_fonts_by_role():
@@ -322,3 +322,12 @@ def test_every_highlighted_label_is_kept(monkeypatch):
 
 def test_highlighting_points_on_a_line(monkeypatch):
     draw("Line", basic(list("ABCDE")), highlight_idxs=[0, 4], highlight_color="#59C8FF")
+
+
+def test_white_text_color_is_replaced_with_navy(monkeypatch):
+    seen = []
+    monkeypatch.setitem(charts.RENDERERS, "Bar", lambda df, s, txt_col: seen.append(txt_col) or (b"", 1))
+    s = {"chart_type": "Bar"}
+    charts.render(pd.DataFrame(), s, "#FFFFFF")
+    charts.render(pd.DataFrame(), s, "#022E67")
+    assert seen == ["#022E67", "#022E67"]

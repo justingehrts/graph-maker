@@ -19,7 +19,7 @@ from matplotlib.ticker import FixedLocator, MaxNLocator
 
 from data_io import DATE_REF_YEAR, format_number, round_day
 from iem import ordinal, rank_of, record_counts
-from palette import PALETTE, contrast_text, gradient_stops, solid
+from palette import PALETTE, TEXT_COLORS, contrast_text, gradient_stops, solid
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 GRID_STYLES = {"Solid": "-", "Dashed": "--", "Dotted": ":"}
@@ -816,6 +816,8 @@ RENDERERS = {"Bar": render_basic, "Line": render_basic, "Running Total vs Normal
 
 def render(df, s, txt_col):
     """Draw the chart for `s['chart_type']`. Returns (png bytes, Y interval actually used)."""
+    if txt_col not in TEXT_COLORS.values():  # Graphs sit on white: text drawn on the transparent canvas is never White
+        txt_col = PALETTE["WI Navy"]
     return RENDERERS[s['chart_type']](df, s, txt_col)
 
 

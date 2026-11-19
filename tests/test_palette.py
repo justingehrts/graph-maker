@@ -15,8 +15,9 @@ def test_nearest_color(old, name):
 
 
 def test_restricted_sets():
-    assert list(TEXT_COLORS) == ["White", "WI Navy"]
-    assert list(GRID_PALETTE) == ["White", "WI Navy", "Gray"]
+    assert list(TEXT_COLORS) == ["WI Navy"]
+    assert list(GRID_PALETTE) == ["WI Navy", "Gray"]
+    assert PALETTE["White"] not in {*TEXT_COLORS.values(), *GRID_PALETTE.values()}  # Nothing white on a transparent area
     assert len(PALETTE) == 9
 
 
