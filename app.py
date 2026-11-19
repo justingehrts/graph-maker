@@ -193,6 +193,12 @@ def set_preset_color(target_key, color_hex):
     """Native callback to update color instantly without double-reruns."""
     st.session_state[target_key] = color_hex
 
+CANVAS_PRESETS = {"Partial screen": (1352, 649), "Full screen": (1566, 196)}  # (width, height) in px
+
+def set_canvas_size(width, height):
+    """Callback for the canvas size preset buttons."""
+    st.session_state['width'], st.session_state['height'] = width, height
+
 RANK_WORD_PAIRS = [("highest", "lowest"), ("wettest", "driest"), ("snowiest", "least snowy"), ("warmest", "coldest"),
                    ("latest", "earliest")]
 
@@ -715,6 +721,9 @@ with st.sidebar:
     if charts.load_fonts()[1]: st.caption("⚠️ Proxima Nova font files not found; using the default sans-serif font.")
 
     with st.expander("📐 Canvas & Chart", expanded=True):
+        for col, (name, (w, h)) in zip(st.columns(len(CANVAS_PRESETS)), CANVAS_PRESETS.items()):
+            col.button(name, key=f"canvas_{name}", width="stretch", help=f"{w} × {h} px",
+                       on_click=set_canvas_size, args=(w, h))
         cw, ch = st.columns(2)
         cw.number_input("Width (px)", *RANGES['width'], step=10, key='width')
         ch.number_input("Height (px)", *RANGES['height'], step=10, key='height')

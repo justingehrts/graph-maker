@@ -60,6 +60,15 @@ def test_every_setting_change_applies_first_time():
     assert at.session_state.x_sz == 60
 
 
+def test_canvas_size_presets():
+    at = new()
+    widget(at, "button", "Partial screen").click().run()
+    assert (at.session_state.width, at.session_state.height) == (1352, 649)
+    widget(at, "button", "Full screen").click().run()
+    assert (at.session_state.width, at.session_state.height) == (1566, 196)
+    assert problems(at) == []
+
+
 def test_hidden_controls_keep_their_values():
     at = new()
     widget(at, "radio", "Chart Type").set_value("Line").run()
