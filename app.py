@@ -193,7 +193,7 @@ def set_preset_color(target_key, color_hex):
     """Native callback to update color instantly without double-reruns."""
     st.session_state[target_key] = color_hex
 
-CANVAS_PRESETS = {"Partial screen": (1352, 649), "Full screen": (1566, 196)}  # (width, height) in px
+CANVAS_PRESETS = {"Partial screen": (1352, 649), "Full screen": (1744, 649)}  # (width, height) in px
 
 def set_canvas_size(width, height):
     """Callback for the canvas size preset buttons."""

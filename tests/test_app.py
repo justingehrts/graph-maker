@@ -65,7 +65,7 @@ def test_canvas_size_presets():
     widget(at, "button", "Partial screen").click().run()
     assert (at.session_state.width, at.session_state.height) == (1352, 649)
     widget(at, "button", "Full screen").click().run()
-    assert (at.session_state.width, at.session_state.height) == (1566, 196)
+    assert (at.session_state.width, at.session_state.height) == (1744, 649)
     assert problems(at) == []
 
 
