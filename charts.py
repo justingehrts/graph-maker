@@ -37,6 +37,7 @@ FONT_FILES = {"data": "proximanova-extrabold.ttf", "label": "proximanova-semibol
 # Axis text is Semibold with bold formatting added, as Max does it: an outline as thick as this fraction of the font
 # size thickens the strokes (sized so Semibold's stems match the Max graphics, a little under real Bold's)
 AXIS_BOLD = 0.02
+TICK_PAD = 1.5  # Points between the tick marks and their labels (matplotlib's default is 3.5)
 FALLBACK_WEIGHTS = {"data": "bold", "label": "bold", "support": "normal"}
 
 
@@ -168,7 +169,7 @@ def _style_y(ax, s, txt_col, y_lo, y_hi, axis="y"):
     # Whole-number intervals get whole-number labels (10, not 10.00) whatever the data-label decimals are
     axis_s = dict(s, num_decimals="0") if float(y_step).is_integer() and s['num_decimals'] != "Auto" else s
     value_axis.set_major_formatter(plt.FuncFormatter(lambda v, _: format_number(v, axis_s, units=s['axis_units'])))
-    ax.tick_params(axis=axis, colors=txt_col, width=3, length=8, zorder=4)
+    ax.tick_params(axis=axis, colors=txt_col, width=3, length=8, pad=TICK_PAD, zorder=4)
     return y_step
 
 
@@ -272,7 +273,7 @@ def _finish(fig, ax, s, txt_col, y_lo, y_hi, zero_line=True, horizontal=False, f
     x_size = s['x_sz']
 
     def style_ticks():
-        ax.tick_params(axis='y' if horizontal else 'x', colors=txt_col, width=3, length=8, zorder=4)
+        ax.tick_params(axis='y' if horizontal else 'x', colors=txt_col, width=3, length=8, pad=TICK_PAD, zorder=4)
         values, categories = (ax.get_xticklabels(), ax.get_yticklabels()) if horizontal else (ax.get_yticklabels(), ax.get_xticklabels())
         for tick in values:
             tick.set_fontproperties(_font('support')); tick.set_fontsize(s['y_sz']); tick.set_color(txt_col)
