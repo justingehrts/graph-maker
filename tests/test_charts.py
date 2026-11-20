@@ -157,6 +157,15 @@ def test_axis_text_is_semibold_with_bold_formatting(monkeypatch):
     assert not any(t.get_path_effects() for t in ax.texts)  # Data labels stay plain Extrabold
 
 
+def test_digits_are_proportional():
+    """A 1 is narrower than a 0, as in Max (the font's AAT tables would otherwise make every digit as wide as a 0)."""
+    from matplotlib.textpath import text_to_path
+    for role, fp in charts.load_fonts()[0].items():
+        width = lambda s: text_to_path.get_text_width_height_descent(s, fp.copy(), False)[0]
+        assert width("11") < 0.8 * width("00"), role
+        assert Path(fp.get_file()).name.startswith("proximanova-")  # Same file names, whichever copy is used
+
+
 def test_missing_fonts_fall_back(monkeypatch):
     monkeypatch.setattr(charts, "_font_file", lambda name: None)
     charts.load_fonts.cache_clear()

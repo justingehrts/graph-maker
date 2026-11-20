@@ -1,8 +1,10 @@
 """Chart rendering (matplotlib -> transparent PNG). No Streamlit here."""
+import hashlib
 import io
 import math
 import os
 import re
+import tempfile
 from functools import lru_cache
 
 import matplotlib
@@ -38,10 +40,37 @@ AXIS_BOLD = 0.02
 FALLBACK_WEIGHTS = {"data": "bold", "label": "bold", "support": "normal"}
 
 
+def _proportional_copy(path):
+    """Path to a copy of the font without its Apple (AAT) layout tables, so the digits are proportional.
+
+    These Proxima Nova files carry an AAT `morx` table that makes matplotlib's text shaping pick tabular figures
+    (every digit as wide as a 0), which leaves a wide gap after each 1. Max uses the plain proportional figures, so
+    the copy drops those tables. It's cached in the temp folder under the same file name; the original is returned if
+    anything goes wrong.
+    """
+    try:
+        stat = os.stat(path)
+        key = hashlib.md5(f"{path}{stat.st_mtime_ns}{stat.st_size}".encode()).hexdigest()[:10]
+        folder = os.path.join(tempfile.gettempdir(), "graph-maker-fonts", key)
+        copy = os.path.join(folder, os.path.basename(path))
+        if not os.path.isfile(copy):
+            from fontTools.ttLib import TTFont
+            font = TTFont(path)
+            for tag in ("morx", "feat", "prop", "bsln"):
+                if tag in font: del font[tag]
+            os.makedirs(folder, exist_ok=True)
+            tmp = f"{copy}.{os.getpid()}.tmp"
+            font.save(tmp)
+            os.replace(tmp, copy)
+        return copy
+    except Exception:
+        return path
+
+
 def _font_file(name):
     """Path to a font file in the fonts folder; None if it's missing."""
     path = os.path.join(HERE, "fonts", name)
-    return path if os.path.isfile(path) else None
+    return _proportional_copy(path) if os.path.isfile(path) else None
 
 
 @lru_cache(maxsize=1)
